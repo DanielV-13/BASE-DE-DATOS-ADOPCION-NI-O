@@ -157,97 +157,73 @@ public class Aplicacion extends Application {
     }
 
     private void showHomePage() {
-        // --- CAMBIO IMPORTANTE: Usamos BorderPane para controlar mejor la posición ---
         BorderPane homeLayout = new BorderPane();
-        homeLayout.setPadding(new Insets(0)); // Sin padding para que la imagen toque el borde
+        homeLayout.setPadding(new Insets(0));
 
-        // zona central
+        // --- Zona Central ---
         VBox centerContent = new VBox(35);
         centerContent.setAlignment(Pos.CENTER);
         centerContent.setPadding(new Insets(20));
 
-        // 1. titulo
+        // 1. Títulos
         VBox headerText = new VBox(8);
         headerText.setAlignment(Pos.CENTER);
-
         Label title = new Label("Bienvenido a nuestra agencia");
         title.setFont(Font.font("Segoe UI", FontWeight.NORMAL, 36));
         title.setTextFill(Color.web("#2c3e50"));
-        title.setWrapText(true);
-        title.setTextAlignment(javafx.scene.text.TextAlignment.CENTER);
 
-        Label subtitle = new Label("Conectando familias, creando futuros");
+        Label subtitle = new Label("Seleccione su usuario para consultar o iniciar un proceso");
         subtitle.setFont(Font.font("Segoe UI", FontWeight.LIGHT, 18));
         subtitle.setTextFill(Color.web("#7f8c8d"));
-
         headerText.getChildren().addAll(title, subtitle);
 
-        // 2. tarjeta de selección
+        // 2. Tarjeta de selección (Solo Solicitante)
         HBox selectionBox = new HBox(15);
         selectionBox.setAlignment(Pos.CENTER);
         selectionBox.setPadding(new Insets(30, 40, 30, 40));
-        selectionBox.setMaxWidth(750); // Un poco más ancha para que quepa todo
-        selectionBox.setStyle("-fx-background-color: white; -fx-background-radius: 20px;");
-
-        DropShadow shadow = new DropShadow();
-        shadow.setRadius(30);
-        shadow.setOffsetY(10);
-        shadow.setColor(Color.rgb(0, 0, 0, 0.08));
-        selectionBox.setEffect(shadow);
-
-        // Estilo inputs
-        String comboStyle = "-fx-background-color: #f7f9fc; -fx-border-color: #e0e0e0; " +
-                "-fx-border-radius: 8; -fx-background-radius: 8; " +
-                "-fx-padding: 2; -fx-font-family: 'Segoe UI'; -fx-font-size: 14px;";
+        selectionBox.setMaxWidth(600);
+        selectionBox.setStyle("-fx-background-color: white; -fx-background-radius: 20px; -fx-effect: dropshadow(three-pass-box, rgba(0,0,0,0.08), 30, 0, 0, 10);");
 
         ComboBox<String> solicitanteCombo = new ComboBox<>();
-        solicitanteCombo.setPromptText("Solicitante");
-        solicitanteCombo.setPrefWidth(240); // Ajuste ligero
+        solicitanteCombo.setPromptText("Seleccione su nombre (Cédula)");
+        solicitanteCombo.setPrefWidth(300);
         solicitanteCombo.setPrefHeight(40);
-        solicitanteCombo.setStyle(comboStyle);
+        // Estilo CSS inline para que se vea moderno
+        solicitanteCombo.setStyle("-fx-font-size: 14px; -fx-background-color: #f7f9fc; -fx-border-color: #e0e0e0; -fx-border-radius: 5;");
 
+        // Cargamos datos
         solicitanteCombo.setItems(GestorBaseDeDatos.obtenerNombresDropdown());
 
-        ComboBox<String> ninoCombo = new ComboBox<>();
-        ninoCombo.setPromptText("Niño/a a adoptar");
-        ninoCombo.setPrefWidth(240); // Ajuste ligero
-        ninoCombo.setPrefHeight(40);
-        ninoCombo.setStyle(comboStyle);
+        Button btnIniciar = new Button("Iniciar Proceso");
+        btnIniciar.setPrefHeight(40);
+        btnIniciar.setStyle("-fx-background-color: #e88188; -fx-text-fill: white; -fx-font-weight: bold; -fx-font-size: 14px; -fx-background-radius: 20; -fx-cursor: hand;");
 
+        // ACCIÓN DEL BOTÓN: Llamar a la lógica nueva
+        btnIniciar.setOnAction(e -> {
+            String seleccion = solicitanteCombo.getValue();
+            if (seleccion != null) {
+                // Extraemos la cédula del string "Nombre Apellido (CEDULA)"
+                String cedula = seleccion.substring(seleccion.lastIndexOf("(") + 1, seleccion.lastIndexOf(")"));
+                iniciarProceso(cedula);
+            } else {
+                mostrarAlerta("Atención", "Por favor seleccione un solicitante.");
+            }
+        });
 
-        // 3. Botón CORREGIDO
-        Button btnMatch = new Button("Conectar");
-        // FIX: setMinWidth evita que salga "C..."
-        btnMatch.setMinWidth(120);
-        btnMatch.setStyle("-fx-background-color: #e88188; -fx-text-fill: white; " +
-                "-fx-font-weight: bold; -fx-font-family: 'Segoe UI'; -fx-font-size: 14px;" +
-                "-fx-background-radius: 25; -fx-padding: 10 20; -fx-cursor: hand; " +
-                "-fx-effect: null;");
-
-        btnMatch.setOnMouseEntered(e -> btnMatch.setStyle("-fx-background-color: #ff7b85; -fx-text-fill: white; -fx-font-weight: bold; -fx-font-family: 'Segoe UI'; -fx-font-size: 14px; -fx-background-radius: 25; -fx-padding: 10 20; -fx-cursor: hand;"));
-        btnMatch.setOnMouseExited(e -> btnMatch.setStyle("-fx-background-color: #e88188; -fx-text-fill: white; -fx-font-weight: bold; -fx-font-family: 'Segoe UI'; -fx-font-size: 14px; -fx-background-radius: 25; -fx-padding: 10 20; -fx-cursor: hand;"));
-
-        selectionBox.getChildren().addAll(solicitanteCombo, ninoCombo, btnMatch);
-
+        selectionBox.getChildren().addAll(solicitanteCombo, btnIniciar);
         centerContent.getChildren().addAll(headerText, selectionBox);
         homeLayout.setCenter(centerContent);
 
-        // --- zona inferior
+        // --- Zona Inferior (Imagen decorativa) ---
         ImageView illustration = new ImageView();
         try {
-            Image img = new Image(getClass().getResourceAsStream("/ilustracion_niños.png"));
-            illustration.setImage(img);
+            illustration.setImage(new Image(getClass().getResourceAsStream("/ilustracion_niños.png")));
             illustration.setPreserveRatio(true);
-            illustration.setFitHeight(220);
-        } catch (Exception e) {
-            // Ignorar si no carga
-        }
+            illustration.setFitHeight(200);
+        } catch (Exception e) { /* Ignorar si no carga */ }
 
-        // contenedor de la imagen
         VBox bottomContainer = new VBox(illustration);
         bottomContainer.setAlignment(Pos.BOTTOM_CENTER);
-        bottomContainer.setPadding(new Insets(0,0,-10,0));
-
         homeLayout.setBottom(bottomContainer);
 
         contentArea.getChildren().clear();
@@ -379,5 +355,141 @@ public class Aplicacion extends Application {
 
     public static void main(String[] args) {
         launch(args);
+    }
+
+    // Paso 1: Mostrar datos del Solicitante y Pareja (si tiene)
+    private void iniciarProceso(String cedula) {
+        // 1. Obtener datos completos desde BD
+        Solicitante solicitante = GestorBaseDeDatos.buscarSolicitantePorCedula(cedula);
+        Solicitante pareja = GestorBaseDeDatos.buscarParejaDe(solicitante.getIdFamilia()); // Necesitarás este método
+
+        // 2. Crear el Popup (Dialog)
+        Dialog<ButtonType> dialog = new Dialog<>();
+        dialog.setTitle("Detalles de la Solicitud");
+        dialog.setHeaderText("Verifique los datos de su familia antes de continuar");
+
+        DialogPane dialogPane = dialog.getDialogPane();
+        dialogPane.getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
+
+        // Layout del contenido
+        VBox content = new VBox(10);
+        content.setPadding(new Insets(20));
+
+        content.getChildren().add(new Label("Solicitante Principal:"));
+        content.getChildren().add(crearTarjetaInfo(solicitante));
+
+        if (pareja != null) {
+            content.getChildren().add(new Label("Cónyuge / Pareja:"));
+            content.getChildren().add(crearTarjetaInfo(pareja));
+        } else {
+            content.getChildren().add(new Label("Tipo de Familia: Monoparental"));
+        }
+
+        dialogPane.setContent(content);
+
+        // 3. Esperar respuesta del usuario
+        dialog.showAndWait().ifPresent(response -> {
+            if (response == ButtonType.OK) {
+                // AQUÍ SE INSERTA EL PROCESO EN BD (Estado: 'En Curso')
+                String idProceso = GestorBaseDeDatos.crearProcesoAdopcion(solicitante.getIdFamilia());
+
+                if (idProceso != null) {
+                    abrirVentanaVerificacion(idProceso, solicitante);
+                }
+            }
+        });
+    }
+
+    // Paso 2: Ventana de Verificación de Requisitos
+    private void abrirVentanaVerificacion(String idProceso, Solicitante sol) {
+        Alert alert = new Alert(Alert.AlertType.INFORMATION);
+        alert.setTitle("Verificación de Elegibilidad");
+        alert.setHeaderText("Validando requisitos legales...");
+
+        // Simulamos un pequeño proceso visual
+        VBox content = new VBox(10);
+        Label lblEdad = new Label("⌛ Verificando edad mínima...");
+        Label lblIngresos = new Label("⌛ Verificando ingresos económicos...");
+        Label lblHistorial = new Label("⌛ Verificando historial...");
+
+        Button btnVerificar = new Button("Ejecutar Verificación");
+        btnVerificar.setOnAction(e -> {
+            // AQUÍ LLAMAMOS A TUS FUNCIONES SQL
+            boolean esApto = GestorBaseDeDatos.ejecutarVerificacionesSQL(sol.getCedula());
+
+            if (esApto) {
+                alert.setResult(ButtonType.NEXT); // Forzamos cierre para ir al siguiente paso
+                alert.close();
+                mostrarPropuestaNino(idProceso); // PASO 3
+            } else {
+                GestorBaseDeDatos.cancelarProceso(idProceso); // Update estado = Cancelado
+                mostrarAlerta("Solicitud Rechazada", "Lo sentimos, no cumple con los requisitos legales en este momento.");
+                alert.close();
+            }
+        });
+
+        content.getChildren().addAll(lblEdad, lblIngresos, lblHistorial, new Separator(), btnVerificar);
+        alert.getDialogPane().setContent(content);
+        alert.showAndWait();
+    }
+
+    // Paso 3: Match con el Niño
+    private void mostrarPropuestaNino(String idProceso) {
+        // Llamada a la función SQL que busca niño random
+        Nino nino = GestorBaseDeDatos.asignarNinoAleatorio(idProceso);
+
+        if (nino == null) {
+            mostrarAlerta("Sin resultados", "No hay niños disponibles para adopción en este momento.");
+            return;
+        }
+
+        Alert matchAlert = new Alert(Alert.AlertType.CONFIRMATION);
+        matchAlert.setTitle("¡Tenemos una coincidencia!");
+        matchAlert.setHeaderText("Propuesta de Adopción");
+
+        VBox card = new VBox(10);
+        card.setStyle("-fx-background-color: #f0f8ff; -fx-padding: 15; -fx-background-radius: 10; -fx-border-color: #bcdff1; -fx-border-radius: 10;");
+
+        Label lblNombre = new Label("Nombre: " + nino.getNombre() + " " + nino.getApellido());
+        lblNombre.setFont(Font.font("System", FontWeight.BOLD, 16));
+
+        card.getChildren().addAll(
+                lblNombre,
+                new Label("Sexo: " + nino.getSexo()),
+                new Label("Nivel Educativo: " + nino.getNivelEducativo())
+                // Aquí podrías añadir enfermedades si las traes de la BD
+        );
+
+        matchAlert.getDialogPane().setContent(card);
+        ButtonType btnAdoptar = new ButtonType("💙 Formalizar Adopción", ButtonBar.ButtonData.OK_DONE);
+        matchAlert.getButtonTypes().setAll(btnAdoptar, ButtonType.CANCEL);
+
+        matchAlert.showAndWait().ifPresent(type -> {
+            if (type == btnAdoptar) {
+                GestorBaseDeDatos.completarAdopcion(idProceso);
+                mostrarAlerta("¡Felicidades!", "El proceso ha finalizado exitosamente. ¡Gracias por dar un hogar!");
+                showHomePage(); // Volver al inicio
+            }
+        });
+    }
+
+    // Auxiliares
+    private VBox crearTarjetaInfo(Solicitante s) {
+        VBox box = new VBox(5);
+        box.setStyle("-fx-border-color: #ccc; -fx-border-radius: 5; -fx-padding: 10;");
+        box.getChildren().addAll(
+                new Label("Nombre: " + s.getNombres() + " " + s.getApellidos()),
+                new Label("Cédula: " + s.getCedula()),
+                new Label("Ingresos: " + s.getIngreso()) // Asegúrate de tener este getter en Solicitante
+        );
+        return box;
+    }
+
+    private void mostrarAlerta(String titulo, String mensaje) {
+        Alert a = new Alert(Alert.AlertType.INFORMATION);
+        a.setTitle(titulo);
+        a.setHeaderText(null);
+        a.setContentText(mensaje);
+        a.showAndWait();
     }
 }
