@@ -6,11 +6,12 @@ public class Solicitante {
     private String apellidos;
     private String telefono;
     private String email;
-    private int idFamilia;
+    private String idFamilia;
     private double ingreso; // O double, según como lo manejes
 
+    public Solicitante() {}
 
-    public Solicitante(String cedula, String nombres, String apellidos, String telefono, String email, int idFamilia, double ingreso) {
+    public Solicitante(String cedula, String nombres, String apellidos, String telefono, String email, String idFamilia, double ingreso) {
         this.cedula = cedula;
         this.nombres = nombres;
         this.apellidos = apellidos;
@@ -26,6 +27,14 @@ public class Solicitante {
     public String getApellidos() { return apellidos; }
     public String getTelefono() { return telefono; }
     public String getEmail() { return email; }
-    public int getIdFamilia() { return idFamilia; }
+    public String getIdFamilia() { return idFamilia; }
     public double getIngreso() { return ingreso; }
+
+    public void setCedula(String cedula) { this.cedula = cedula; }
+    public void setNombres(String nombres) { this.nombres = nombres; }
+    public void setApellidos(String apellidos) { this.apellidos = apellidos; }
+    public void setTelefono(String telefono) { this.telefono = telefono; }
+    public void setEmail(String email) { this.email = email; }
+    public void setIdFamilia(String idFamilia) {this.idFamilia = idFamilia; }
+    public void setIngreso(double ingreso) { this.ingreso = ingreso; }
 }

@@ -12,6 +12,8 @@ module org.example.agenciaadopcion {
     requires com.almasb.fxgl.all;
     requires java.desktop;
     requires java.sql;
+    requires org.apache.poi.poi;
+    requires org.apache.poi.ooxml;
 
 
     opens org.example.agenciaadopcion to javafx.fxml;
