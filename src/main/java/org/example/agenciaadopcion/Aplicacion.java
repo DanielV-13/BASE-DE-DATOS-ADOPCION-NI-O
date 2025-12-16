@@ -410,7 +410,7 @@ public class Aplicacion extends Application {
         );
 
         matchAlert.getDialogPane().setContent(card);
-        ButtonType btnAdoptar = new ButtonType("💙 Formalizar Adopción", ButtonBar.ButtonData.OK_DONE);
+        ButtonType btnAdoptar = new ButtonType("Formalizar Adopción", ButtonBar.ButtonData.OK_DONE);
         matchAlert.getButtonTypes().setAll(btnAdoptar, ButtonType.CANCEL);
 
         matchAlert.showAndWait().ifPresent(type -> {

@@ -6,9 +6,9 @@ import java.sql.SQLException;
 
 public class ConexionDB { // 1. La clase abre aquí
 
-    private static final String URL = "jdbc:postgresql://localhost:5432/PROYECTO BASE DE DATOS";
-    private static final String USER = "postgres";
-    private static final String PASS = "daniel13102005"; // Asegúrate que esta sea la contraseña real
+    private static final String URL = "jdbc:postgresql://localhost:5432/adopcion";
+    private static final String USER = "pau";
+    private static final String PASS = "nenalindapmq"; // Asegúrate que esta sea la contraseña real
 
 
     public static Connection getConnection() {
@@ -28,3 +28,4 @@ public class ConexionDB { // 1. La clase abre aquí
     }
 
 } // 5. La clase cierra AQUÍ, al final del archivo
+

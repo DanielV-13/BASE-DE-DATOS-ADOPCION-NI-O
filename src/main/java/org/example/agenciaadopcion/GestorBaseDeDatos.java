@@ -29,7 +29,7 @@ public class GestorBaseDeDatos {
         return lista;
     }
 
-    // 2. OBTENER TODOS LOS SOLICITANTES (PARA LA TABLA)
+    // 2. OBTENER TODOS LOS SOLICITANTES
     public static ObservableList<Solicitante> obtenerTodosSolicitantes() {
         ObservableList<Solicitante> lista = FXCollections.observableArrayList();
         String sql = "SELECT * FROM listar_solicitantes()";
@@ -139,90 +139,94 @@ public class GestorBaseDeDatos {
         }
     }
 
-    // 7. VERIFICACIONES (CORREGIDO)
-    public static String ejecutarVerificacionesSQL(String cedulaSolicitante) {
-        // Obtenemos el ID primero
-        String idSolicitante = obtenerIdPorCedula(cedulaSolicitante);
+    // 7. VERIFICACIONES INDIVIDUALES (Usadas por tu interfaz animada)
 
-        if (idSolicitante == null) return "Error: Solicitante no encontrado.";
+    public static boolean checkEdad(String cedula) {
+        String id = obtenerIdPorCedula(cedula);
+        String sql = "SELECT validar_edad_solicitante(?)";
+        return ejecutarCheckBooleano(sql, id);
+    }
 
-        String sql = "SELECT " +
-                "validar_edad_solicitante(?) AS edad_ok, " +
-                "validar_ingreso_solicitante(?) AS ingresos_ok, " +
-                "validar_enfermedades_solicitante(?) AS salud_ok, " +
-                "validar_documentos_solicitante(?) AS docs_ok, " +
-                "validar_antecedentes_penales(?) AS penal_ok";
+    public static boolean checkIngresos(String cedula) {
+        String id = obtenerIdPorCedula(cedula);
+        String sql = "SELECT validar_ingreso_solicitante(?)";
+        return ejecutarCheckBooleano(sql, id);
+    }
 
+    public static boolean checkSalud(String cedula) {
+        String id = obtenerIdPorCedula(cedula);
+        String sql = "SELECT validar_enfermedades_solicitante(?)";
+        return ejecutarCheckBooleano(sql, id);
+    }
+
+    public static boolean checkAntecedentes(String cedula) {
+        String id = obtenerIdPorCedula(cedula);
+        String sql = "SELECT validar_antecedentes_penales(?)";
+        return ejecutarCheckBooleano(sql, id);
+    }
+
+    public static boolean checkDocumentosCompletos(String cedula) {
+        String id = obtenerIdPorCedula(cedula);
+        String sql = "SELECT validar_documentos_solicitante(?)";
+        return ejecutarCheckBooleano(sql, id);
+    }
+
+    // Método auxiliar para no repetir código de conexión en los checks
+    private static boolean ejecutarCheckBooleano(String sql, String parametro) {
         try (Connection conn = ConexionDB.getConnection();
-             PreparedStatement pstmt = conn.prepareStatement(sql)) {
-
-            for(int i=1; i<=5; i++) pstmt.setString(i, idSolicitante);
-
-            ResultSet rs = pstmt.executeQuery();
-
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, parametro);
+            ResultSet rs = ps.executeQuery();
             if (rs.next()) {
-                boolean edad = rs.getBoolean("edad_ok");
-                boolean ingresos = rs.getBoolean("ingresos_ok");
-                boolean salud = rs.getBoolean("salud_ok");
-                boolean docs = rs.getBoolean("docs_ok");
-                boolean penal = rs.getBoolean("penal_ok");
-
-                // Si todo es TRUE, retornamos OK
-                if (edad && ingresos && salud && docs && penal) {
-                    return "OK";
-                } else {
-                    // Si algo falla, construimos el mensaje detallado
-                    StringBuilder error = new StringBuilder("Fallos detectados:\n");
-                    if (!edad) error.append("- Edad menor a 25\n");
-                    if (!ingresos) error.append("- Ingresos insuficientes (<$800)\n");
-                    if (!salud) error.append("- Tiene enfermedad imposibilitante\n");
-                    if (!docs) error.append("- Faltan documentos obligatorios\n");
-                    if (!penal) error.append("- Tiene antecedentes penales\n");
-                    return error.toString();
-                }
+                return rs.getBoolean(1); // Devuelve el TRUE/FALSE de la función SQL
             }
         } catch (SQLException e) {
             e.printStackTrace();
-            return "Error de BD: " + e.getMessage();
         }
-        return "Error desconocido en validación.";
+        return false;
     }
 
-    // AUXILIAR (Método privado)
-    private static String obtenerIdPorCedula(String cedula) {
-        String sql = "SELECT id_solicitante FROM solicitante WHERE cedula = ?";
-        try (Connection conn = ConexionDB.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, cedula);
-            ResultSet rs = ps.executeQuery();
-            if (rs.next()) return rs.getString("id_solicitante");
-        } catch (SQLException e) { e.printStackTrace(); }
-        return null;
-    }
-
-    // 8. ASIGNAR NIÑO ALEATORIO
+    // 8. ASIGNAR NIÑO ALEATORIO (LOGICA MANUAL CORREGIDA)
+    // Esta función busca un niño libre y actualiza la BD, vital porque quitamos los triggers.
     public static Nino asignarNinoAleatorio(String idProceso) {
         Nino nino = null;
-        String sql = "SELECT n.id_niño, n.nombres, n.apellidos, n.sexo, n.nivel_educacion " +
-                "FROM proceso p " +
-                "JOIN niño n ON p.id_niño = n.id_niño " +
-                "WHERE p.id_proceso = ?";
 
-        try (Connection conn = ConexionDB.getConnection();
-             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+        // 1. Buscar niño disponible
+        String sqlBuscar = "SELECT * FROM niño WHERE Niño_Proceso_Adopcion = 'Sin Asignar' ORDER BY random() LIMIT 1";
+        // 2. Vincular al proceso
+        String sqlUpdateProceso = "UPDATE proceso SET id_niño = ? WHERE id_proceso = ?";
+        // 3. Marcar niño como ocupado
+        String sqlUpdateNino = "UPDATE niño SET Niño_Proceso_Adopcion = 'Asignado' WHERE id_niño = ?";
 
-            pstmt.setString(1, idProceso);
-            ResultSet rs = pstmt.executeQuery();
-
-            if (rs.next()) {
-                nino = new Nino(
-                        rs.getString("id_niño"),
-                        rs.getString("nombres"),
-                        rs.getString("apellidos"),
-                        rs.getString("sexo"),
-                        rs.getString("nivel_educacion")
-                );
+        try (Connection conn = ConexionDB.getConnection()) {
+            // A. Encontrar al niño
+            try (Statement stmt = conn.createStatement();
+                 ResultSet rs = stmt.executeQuery(sqlBuscar)) {
+                if (rs.next()) {
+                    nino = new Nino(
+                            rs.getString("id_niño"),
+                            rs.getString("nombres"),
+                            rs.getString("apellidos"),
+                            rs.getString("sexo"),
+                            rs.getString("nivel_educacion")
+                    );
+                }
             }
+
+            if (nino != null) {
+                // B. Actualizar Proceso
+                try (PreparedStatement ps = conn.prepareStatement(sqlUpdateProceso)) {
+                    ps.setString(1, nino.getIdNino());
+                    ps.setString(2, idProceso);
+                    ps.executeUpdate();
+                }
+                // C. Actualizar Estado Niño
+                try (PreparedStatement ps = conn.prepareStatement(sqlUpdateNino)) {
+                    ps.setString(1, nino.getIdNino());
+                    ps.executeUpdate();
+                }
+            }
+
         } catch (SQLException e) {
             e.printStackTrace();
         }
@@ -255,12 +259,7 @@ public class GestorBaseDeDatos {
         }
     }
 
-    // Sobrecarga por defecto
-    public static void cancelarProceso(String idProceso) {
-        cancelarProceso(idProceso, "Cancelación automática del sistema");
-    }
-
-    // 11. OBTENER NIÑOS
+    // 11. OBTENER NIÑOS (Para la tabla de "Mostrar Niños")
     public static ObservableList<Nino> obtenerTodosNinos() {
         ObservableList<Nino> lista = FXCollections.observableArrayList();
         String sql = "SELECT id_niño, nombres, apellidos, sexo, nivel_educacion FROM niño WHERE Niño_Proceso_Adopcion = 'Sin Asignar'";
@@ -282,55 +281,17 @@ public class GestorBaseDeDatos {
             e.printStackTrace();
         }
         return lista;
-
-
-    }
-    public static boolean checkEdad(String cedula) {
-        String id = obtenerIdPorCedula(cedula);
-        String sql = "SELECT validar_edad_solicitante(?)";
-        return ejecutarCheckBooleano(sql, id);
     }
 
-    // B. Valida SOLO Ingresos
-    public static boolean checkIngresos(String cedula) {
-        String id = obtenerIdPorCedula(cedula);
-        String sql = "SELECT validar_ingreso_solicitante(?)";
-        return ejecutarCheckBooleano(sql, id);
-    }
-
-    // C. Valida SOLO Salud
-    public static boolean checkSalud(String cedula) {
-        String id = obtenerIdPorCedula(cedula);
-        String sql = "SELECT validar_enfermedades_solicitante(?)";
-        return ejecutarCheckBooleano(sql, id);
-    }
-
-    // D. Valida SOLO Antecedentes
-    public static boolean checkAntecedentes(String cedula) {
-        String id = obtenerIdPorCedula(cedula);
-        String sql = "SELECT validar_antecedentes_penales(?)";
-        return ejecutarCheckBooleano(sql, id);
-    }
-
-    // E. Valida SOLO si faltan Documentos (Para el paso final)
-    public static boolean checkDocumentosCompletos(String cedula) {
-        String id = obtenerIdPorCedula(cedula);
-        String sql = "SELECT validar_documentos_solicitante(?)";
-        return ejecutarCheckBooleano(sql, id);
-    }
-
-    // Método auxiliar para no repetir código de conexión
-    private static boolean ejecutarCheckBooleano(String sql, String parametro) {
+    // AUXILIAR
+    private static String obtenerIdPorCedula(String cedula) {
+        String sql = "SELECT id_solicitante FROM solicitante WHERE cedula = ?";
         try (Connection conn = ConexionDB.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, parametro);
+            ps.setString(1, cedula);
             ResultSet rs = ps.executeQuery();
-            if (rs.next()) {
-                return rs.getBoolean(1); // Devuelve el TRUE/FALSE de la función SQL
-            }
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
-        return false; // Por defecto falla si hay error
+            if (rs.next()) return rs.getString("id_solicitante");
+        } catch (SQLException e) { e.printStackTrace(); }
+        return null;
     }
 }
