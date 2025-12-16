@@ -262,6 +262,7 @@ public class GestorBaseDeDatos {
     // 11. OBTENER NIÑOS (Para la tabla de "Mostrar Niños")
     public static ObservableList<Nino> obtenerTodosNinos() {
         ObservableList<Nino> lista = FXCollections.observableArrayList();
+        // Usamos SELECT FROM niño (sin comillas) para que PostgreSQL lo resuelva bien
         String sql = "SELECT id_niño, nombres, apellidos, sexo, nivel_educacion FROM niño WHERE Niño_Proceso_Adopcion = 'Sin Asignar'";
 
         try (Connection conn = ConexionDB.getConnection();

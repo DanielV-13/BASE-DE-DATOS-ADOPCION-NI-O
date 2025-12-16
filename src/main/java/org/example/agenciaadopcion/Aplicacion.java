@@ -58,12 +58,8 @@ public class Aplicacion extends Application {
         stage.setResizable(true);
         stage.show();
 
-
-
         // Mostrar página de inicio
         showHomePage();
-
-
     }
 
     // --- MENÚ LATERAL ---
@@ -400,6 +396,7 @@ public class Aplicacion extends Application {
         VBox card = new VBox(10);
         card.setStyle("-fx-background-color: #f0f8ff; -fx-padding: 15; -fx-background-radius: 10; -fx-border-color: #bcdff1; -fx-border-radius: 10;");
 
+        // CORREGIDO: Usamos getNombre() y getApellido() en singular, como está en Nino.java
         Label lblNombre = new Label("Nombre: " + nino.getNombre() + " " + nino.getApellido());
         lblNombre.setFont(Font.font("System", FontWeight.BOLD, 16));
 
@@ -410,7 +407,7 @@ public class Aplicacion extends Application {
         );
 
         matchAlert.getDialogPane().setContent(card);
-        ButtonType btnAdoptar = new ButtonType("Formalizar Adopción", ButtonBar.ButtonData.OK_DONE);
+        ButtonType btnAdoptar = new ButtonType("💙 Formalizar Adopción", ButtonBar.ButtonData.OK_DONE);
         matchAlert.getButtonTypes().setAll(btnAdoptar, ButtonType.CANCEL);
 
         matchAlert.showAndWait().ifPresent(type -> {
@@ -535,6 +532,7 @@ public class Aplicacion extends Application {
 
         TableView<Nino> table = new TableView<>();
 
+        // CORREGIDO: Usamos "nombre" y "apellido" en singular para coincidir con tu clase Nino.java
         TableColumn<Nino, String> colNombre = new TableColumn<>("Nombre");
         colNombre.setCellValueFactory(new javafx.scene.control.cell.PropertyValueFactory<>("nombre"));
 
