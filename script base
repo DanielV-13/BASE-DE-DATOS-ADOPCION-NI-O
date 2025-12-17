@@ -2,8 +2,6 @@
 -- PostgreSQL database dump
 --
 
-\restrict i01md3Od9XC68jAX7wWlvG8kfVSopxhtzoOEtNwU4ft0KtIczFYJj0zGBNBoW2R
-
 -- Dumped from database version 14.19 (Homebrew)
 -- Dumped by pg_dump version 18.0
 
@@ -1515,5 +1513,4 @@ ALTER TABLE ONLY public.verif_doc_solicitante
 -- PostgreSQL database dump complete
 --
 
-\unrestrict i01md3Od9XC68jAX7wWlvG8kfVSopxhtzoOEtNwU4ft0KtIczFYJj0zGBNBoW2R
 
