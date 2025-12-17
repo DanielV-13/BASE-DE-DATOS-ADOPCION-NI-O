@@ -1,66 +1,72 @@
 package org.example.agenciaadopcion;
 
+
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import org.example.agenciaadopcion.entidadesBD.Nino;
 import org.example.agenciaadopcion.entidadesBD.Solicitante;
 
+
 import java.sql.*;
+
 
 public class GestorBaseDeDatos {
 
-    // 1. INICIAR (Llama a la función SQL iniciar_proceso)z
+
+    // 1. INICIAR PROCESO
     public static String iniciarProceso(String idFamilia) {
         String sql = "SELECT iniciar_proceso(?)";
         try (Connection conn = ConexionDB.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
 
+
             ps.setString(1, idFamilia);
             ResultSet rs = ps.executeQuery();
+            if (rs.next()) return rs.getString(1);
 
-            if (rs.next()) {
-                String nuevoId = rs.getString(1);
-                System.out.println("✅ Proceso iniciado con ID: " + nuevoId);
-                return nuevoId;
-            }
+
         } catch (SQLException e) {
             System.err.println("Error al iniciar proceso: " + e.getMessage());
         }
         return null;
     }
 
-    // 2. FINALIZAR (Llama a finalizar_proceso)
+
+    // 2. FINALIZAR PROCESO
     public static void finalizarProceso(String idProceso, String idNino) {
         String sql = "SELECT finalizar_proceso(?, ?)";
         try (Connection conn = ConexionDB.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
 
+
             ps.setString(1, idProceso);
             ps.setString(2, idNino);
             ps.execute();
 
-            System.out.println("🎉 Adopción formalizada correctamente en BD.");
+
         } catch (SQLException e) {
             e.printStackTrace();
         }
     }
 
-    // 1. OBTENER LISTA PARA EL DROPDOWN (Menú principal)
+
+    // 3. DROPDOWN DE SOLICITANTES
     public static ObservableList<String> obtenerNombresDropdown() {
         ObservableList<String> lista = FXCollections.observableArrayList();
-        // Usamos la función que devuelve la tabla de solicitantes
         String sql = "SELECT * FROM listar_solicitantes()";
+
 
         try (Connection conn = ConexionDB.getConnection();
              Statement stmt = conn.createStatement();
              ResultSet rs = stmt.executeQuery(sql)) {
 
+
             while (rs.next()) {
-                // Formato: "Juan Perez (1712345678)"
-                String texto = rs.getString("nombres") + " " +
-                        rs.getString("apellidos") + " (" +
-                        rs.getString("cedula") + ")";
-                lista.add(texto);
+                lista.add(
+                        rs.getString("nombres") + " " +
+                                rs.getString("apellidos") + " (" +
+                                rs.getString("cedula") + ")"
+                );
             }
         } catch (SQLException e) {
             e.printStackTrace();
@@ -68,50 +74,24 @@ public class GestorBaseDeDatos {
         return lista;
     }
 
-    // 2. OBTENER TODOS LOS SOLICITANTES (Para la tabla de Administración)
+
+    // 4. TODOS LOS SOLICITANTES (NO SE TOCA)
     public static ObservableList<Solicitante> obtenerTodosSolicitantes() {
         ObservableList<Solicitante> lista = FXCollections.observableArrayList();
-        // CAMBIO CLAVE: ingreso_mensual::numeric
-        String sql = "SELECT id_solicitante, cedula, nombres, apellidos, telefono, email, id_familia, ingreso_mensual::numeric FROM solicitante";
+        String sql = """
+           SELECT id_solicitante, cedula, nombres, apellidos,
+                  telefono, email, id_familia, ingreso_mensual::numeric
+           FROM solicitante
+       """;
 
-        // ... el resto sigue igual ...
+
         try (Connection conn = ConexionDB.getConnection();
              Statement stmt = conn.createStatement();
              ResultSet rs = stmt.executeQuery(sql)) {
+
 
             while (rs.next()) {
                 lista.add(new Solicitante(
-                        rs.getString("id_solicitante"), // <--- Nuevo ID
-                        rs.getString("cedula"),
-                        rs.getString("nombres"),
-                        rs.getString("apellidos"),
-                        rs.getString("telefono"),
-                        rs.getString("email"),
-                        rs.getString("id_familia"),
-                        rs.getDouble("ingreso_mensual")
-                ));
-            }
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
-        return lista;
-    }
-
-    // 3. BUSCAR SOLICITANTE POR CÉDULA
-    public static Solicitante buscarSolicitantePorCedula(String cedulaBuscada) {
-        Solicitante sol = null;
-        // CAMBIO CLAVE: ingreso_mensual::numeric
-        String sql = "SELECT id_solicitante, cedula, nombres, apellidos, telefono, email, id_familia, ingreso_mensual::numeric " +
-                "FROM solicitante WHERE cedula = ?";
-
-        try (Connection conn = ConexionDB.getConnection();
-             PreparedStatement pstmt = conn.prepareStatement(sql)) {
-
-            pstmt.setString(1, cedulaBuscada);
-            ResultSet rs = pstmt.executeQuery();
-
-            if (rs.next()) {
-                sol = new Solicitante(
                         rs.getString("id_solicitante"),
                         rs.getString("cedula"),
                         rs.getString("nombres"),
@@ -119,33 +99,32 @@ public class GestorBaseDeDatos {
                         rs.getString("telefono"),
                         rs.getString("email"),
                         rs.getString("id_familia"),
-                        rs.getDouble("ingreso_mensual") // ¡Ahora sí funcionará!
-                );
+                        rs.getDouble("ingreso_mensual")
+                ));
             }
         } catch (SQLException e) {
             e.printStackTrace();
         }
-        return sol;
+        return lista;
     }
 
-    // 4. BUSCAR PAREJA DE LA MISMA FAMILIA
-    public static Solicitante buscarParejaDe(String idFamilia, String cedulaExcluir) {
-        Solicitante pareja = null;
-        // CAMBIO CLAVE: ingreso_mensual::numeric
-        String sql = "SELECT id_solicitante, cedula, nombres, apellidos, telefono, email, id_familia, ingreso_mensual::numeric " +
-                "FROM solicitante WHERE id_familia = ? AND cedula != ?";
 
-        // ... el resto sigue igual ...
+    // 5. BUSCAR SOLICITANTE POR CÉDULA (FUNCIÓN SQL)
+    public static Solicitante buscarSolicitantePorCedula(String cedulaBuscada) {
+        String sql = "SELECT * FROM buscar_solicitante_completo(?)";
+
+
         try (Connection conn = ConexionDB.getConnection();
-             PreparedStatement pstmt = conn.prepareStatement(sql)) {
+             PreparedStatement ps = conn.prepareStatement(sql)) {
 
-            pstmt.setString(1, idFamilia);
-            pstmt.setString(2, cedulaExcluir);
-            ResultSet rs = pstmt.executeQuery();
+
+            ps.setString(1, cedulaBuscada);
+            ResultSet rs = ps.executeQuery();
+
 
             if (rs.next()) {
-                pareja = new Solicitante(
-                        rs.getString("id_solicitante"), // <--- Nuevo ID
+                return new Solicitante(
+                        rs.getString("id_solicitante"),
                         rs.getString("cedula"),
                         rs.getString("nombres"),
                         rs.getString("apellidos"),
@@ -158,100 +137,145 @@ public class GestorBaseDeDatos {
         } catch (SQLException e) {
             e.printStackTrace();
         }
-        return pareja;
+        return null;
     }
 
-    // 5. VALIDACIÓN DE ESTADO: ¿TIENE PROCESO ACTIVO? (Para el "Semáforo")
-    public static boolean checkSolicitanteLibre(String cedula) {
-        String sql = "SELECT solicitante_proceso_adopcion FROM solicitante WHERE cedula = ?";
+
+    // 6. BUSCAR PAREJA
+    public static Solicitante buscarParejaDe(String idFamilia, String cedulaExcluir) {
+        String sql = "SELECT * FROM buscar_pareja_familia(?, ?)";
+
 
         try (Connection conn = ConexionDB.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
 
+
+            ps.setString(1, idFamilia);
+            ps.setString(2, cedulaExcluir);
+            ResultSet rs = ps.executeQuery();
+
+
+            if (rs.next()) {
+                return new Solicitante(
+                        rs.getString("id_solicitante"),
+                        rs.getString("cedula"),
+                        rs.getString("nombres"),
+                        rs.getString("apellidos"),
+                        rs.getString("telefono"),
+                        rs.getString("email"),
+                        rs.getString("id_familia"),
+                        rs.getDouble("ingreso_mensual")
+                );
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        return null;
+    }
+
+
+    // 7. ¿SOLICITANTE LIBRE? (BUG CORREGIDO)
+    public static boolean checkSolicitanteLibre(String cedula) {
+        String sql = "SELECT solicitante_proceso_adopcion FROM solicitante WHERE cedula = ?";
+
+
+        try (Connection conn = ConexionDB.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+
+
             ps.setString(1, cedula);
             ResultSet rs = ps.executeQuery();
 
+
             if (rs.next()) {
-                String estado = rs.next() ? rs.getString("solicitante_proceso_adopcion") : null;
-                // EL CAMBIO: Agregamos .trim() para ignorar espacios invisibles
+                String estado = rs.getString("solicitante_proceso_adopcion");
                 return estado != null && "Sin Asignar".equalsIgnoreCase(estado.trim());
             }
         } catch (SQLException e) {
             e.printStackTrace();
         }
         return false;
-
     }
 
-    // 6. VALIDACIONES INDIVIDUALES (Llaman a funciones booleanas de SQL)
+
+    // 8. VALIDACIONES (YA ESTABAN BIEN)
     public static boolean checkEdad(String cedula) {
-        String id = obtenerIdPorCedula(cedula);
-        return ejecutarCheckBooleano("SELECT validar_edad_solicitante(?)", id);
+        return ejecutarCheckBooleano("SELECT validar_edad_solicitante(?)", obtenerIdPorCedula(cedula));
     }
+
 
     public static boolean checkIngresos(String cedula) {
-        String id = obtenerIdPorCedula(cedula);
-        return ejecutarCheckBooleano("SELECT validar_ingreso_solicitante(?)", id);
+        return ejecutarCheckBooleano("SELECT validar_ingreso_solicitante(?)", obtenerIdPorCedula(cedula));
     }
+
 
     public static boolean checkSalud(String cedula) {
-        String id = obtenerIdPorCedula(cedula);
-        return ejecutarCheckBooleano("SELECT validar_enfermedades_solicitante(?)", id);
+        return ejecutarCheckBooleano("SELECT validar_enfermedades_solicitante(?)", obtenerIdPorCedula(cedula));
     }
+
 
     public static boolean checkAntecedentes(String cedula) {
-        String id = obtenerIdPorCedula(cedula);
-        return ejecutarCheckBooleano("SELECT validar_antecedentes_penales(?)", id);
+        return ejecutarCheckBooleano("SELECT validar_antecedentes_penales(?)", obtenerIdPorCedula(cedula));
     }
+
 
     public static boolean checkDocumentosCompletos(String cedula) {
-        String id = obtenerIdPorCedula(cedula);
-        return ejecutarCheckBooleano("SELECT validar_documentos_solicitante(?)", id);
+        return ejecutarCheckBooleano("SELECT validar_documentos_solicitante(?)", obtenerIdPorCedula(cedula));
     }
 
-    // Método auxiliar para no repetir código de conexión
-    private static boolean ejecutarCheckBooleano(String sql, String parametro) {
+
+    private static boolean ejecutarCheckBooleano(String sql, String param) {
         try (Connection conn = ConexionDB.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, parametro);
+
+
+            ps.setString(1, param);
             ResultSet rs = ps.executeQuery();
-            if (rs.next()) {
-                return rs.getBoolean(1); // Devuelve el TRUE/FALSE de la función SQL
-            }
+            return rs.next() && rs.getBoolean(1);
+
+
         } catch (SQLException e) {
             e.printStackTrace();
         }
         return false;
     }
 
-    // 7. CREAR PROCESO (Retorna ID o NULL si falla)
+
+    // 9. CREAR PROCESO
     public static String crearProceso(String idFamilia) {
         String sql = "SELECT crear_proceso_adopcion(?)";
         try (Connection conn = ConexionDB.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
+
+
             ps.setString(1, idFamilia);
             ResultSet rs = ps.executeQuery();
             if (rs.next()) return rs.getString(1);
+
+
         } catch (SQLException e) {
-            System.err.println("Error creando proceso: " + e.getMessage());
+            e.printStackTrace();
         }
         return null;
     }
 
-    // 8. ASIGNAR NIÑO ALEATORIO
+
+    // 10. ASIGNAR NIÑO
     public static Nino asignarNinoAleatorio(String idProceso) {
-        Nino nino = null;
         String sql = "SELECT * FROM asignar_nino_aleatorio(?)";
 
-        try (Connection conn = ConexionDB.getConnection();
-             PreparedStatement pstmt = conn.prepareStatement(sql)) {
 
-            pstmt.setString(1, idProceso);
-            ResultSet rs = pstmt.executeQuery();
+        try (Connection conn = ConexionDB.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+
+
+            ps.setString(1, idProceso);
+            ResultSet rs = ps.executeQuery();
+
 
             if (rs.next()) {
-                nino = new Nino(
-                        rs.getString("id_nino"), // OJO: id_nino (sin ñ) porque así lo definimos en la función SQL
+                return new Nino(
+                        rs.getString("id_nino"),
                         rs.getString("nombres"),
                         rs.getString("apellidos"),
                         rs.getString("sexo"),
@@ -259,87 +283,74 @@ public class GestorBaseDeDatos {
                 );
             }
         } catch (SQLException e) {
-            System.err.println("Aviso BD (Asignación): " + e.getMessage());
+            e.printStackTrace();
         }
-        return nino;
+        return null;
     }
 
-    // 9. COMPLETAR PROCESO (Actualiza estado, fecha y libera padres)
-    // 9. COMPLETAR PROCESO (VERSIÓN DEPURACIÓN CON ALERTAS)
+
+    // 11. COMPLETAR PROCESO (NO TOCAR)
     public static void completarProceso(String idProceso) {
         String sqlGetNino = "SELECT id_niño FROM proceso WHERE id_proceso = ?";
         String sqlFinalizar = "SELECT finalizar_proceso(?, ?)";
 
+
         try (Connection conn = ConexionDB.getConnection()) {
 
-            // 1. Averiguar qué niño tiene asignado este proceso
+
             String idNino = null;
             try (PreparedStatement ps1 = conn.prepareStatement(sqlGetNino)) {
                 ps1.setString(1, idProceso);
                 ResultSet rs = ps1.executeQuery();
-                if (rs.next()) {
-                    idNino = rs.getString("id_niño");
-                }
+                if (rs.next()) idNino = rs.getString("id_niño");
             }
 
-            // 2. Si hay niño, llamamos a la función final
+
             if (idNino != null) {
                 try (PreparedStatement ps2 = conn.prepareStatement(sqlFinalizar)) {
                     ps2.setString(1, idProceso);
                     ps2.setString(2, idNino);
                     ps2.execute();
-                    System.out.println("✅ Adopción finalizada en BD.");
                 }
-            } else {
-                // ERROR 1: EL NIÑO ES NULL
-                mostrarError("Error Crítico", "El proceso " + idProceso + " no tiene un niño asignado en la BD.\nEl UPDATE anterior falló.");
             }
-
         } catch (SQLException e) {
-            // ERROR 2: FALLO SQL (AQUÍ ESTÁ TU PROBLEMA SEGURAMENTE)
             e.printStackTrace();
-            mostrarError("Error de Base de Datos", "No se pudo finalizar el proceso:\n" + e.getMessage());
         }
     }
 
-    // Pequeño método auxiliar para mostrar errores desde aquí
-    private static void mostrarError(String titulo, String mensaje) {
-        javafx.application.Platform.runLater(() -> {
-            javafx.scene.control.Alert alert = new javafx.scene.control.Alert(javafx.scene.control.Alert.AlertType.ERROR);
-            alert.setTitle(titulo);
-            alert.setHeaderText(null);
-            alert.setContentText(mensaje);
-            alert.showAndWait();
-        });
-    }
 
-    // 10. CANCELAR PROCESO
+    // 12. CANCELAR PROCESO
     public static void cancelarProceso(String idProceso, String motivo) {
         String sql = "SELECT cancelar_proceso(?, ?)";
         try (Connection conn = ConexionDB.getConnection();
-             PreparedStatement pstmt = conn.prepareStatement(sql)) {
-            pstmt.setString(1, idProceso);
-            pstmt.setString(2, motivo);
-            pstmt.execute();
-            System.out.println("⛔ Proceso cancelado. Motivo: " + motivo);
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+
+
+            ps.setString(1, idProceso);
+            ps.setString(2, motivo);
+            ps.execute();
+
+
         } catch (SQLException e) {
             e.printStackTrace();
         }
     }
 
-    // 11. OBTENER NIÑOS DISPONIBLES (Para la tabla de "Niños")
+
+    // 13. NIÑOS DISPONIBLES
     public static ObservableList<Nino> obtenerTodosNinos() {
         ObservableList<Nino> lista = FXCollections.observableArrayList();
-        // Llamamos a la función que filtra solo los "Sin Asignar"
         String sql = "SELECT * FROM listar_ninos_disponibles()";
+
 
         try (Connection conn = ConexionDB.getConnection();
              Statement stmt = conn.createStatement();
              ResultSet rs = stmt.executeQuery(sql)) {
 
+
             while (rs.next()) {
                 lista.add(new Nino(
-                        rs.getString("id_niño"), // Aquí sí es id_niño (con ñ) porque viene del TYPE TABLE
+                        rs.getString("id_niño"),
                         rs.getString("nombres"),
                         rs.getString("apellidos"),
                         rs.getString("sexo"),
@@ -352,32 +363,42 @@ public class GestorBaseDeDatos {
         return lista;
     }
 
-    // AUXILIAR: Obtener ID (SOL-XXX) a partir de Cédula
+
+    // AUXILIAR (SE DEJA COMO ESTABA)
     private static String obtenerIdPorCedula(String cedula) {
         String sql = "SELECT id_solicitante FROM solicitante WHERE cedula = ?";
         try (Connection conn = ConexionDB.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
+
+
             ps.setString(1, cedula);
             ResultSet rs = ps.executeQuery();
             if (rs.next()) return rs.getString("id_solicitante");
-        } catch (SQLException e) { e.printStackTrace(); }
+
+
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
         return null;
     }
 
 
+    // 14. REGISTRAR INTENTO FALLIDO
     public static void registrarIntentoFallido(String idFamilia, String motivo, String tipo) {
         String sql = "SELECT registrar_intento_fallido(?, ?, ?)";
         try (Connection conn = ConexionDB.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
 
-            ps.setString(1, idFamilia);
-            ps.setString(2, motivo); // Ej: "Ingresos insuficientes"
-            ps.setString(3, tipo);   // Ej: "ECONOMICO"
 
+            ps.setString(1, idFamilia);
+            ps.setString(2, motivo);
+            ps.setString(3, tipo);
             ps.execute();
-            System.out.println("❌ Intento fallido registrado en BD: " + tipo);
+
+
         } catch (SQLException e) {
             e.printStackTrace();
         }
     }
 }
+
