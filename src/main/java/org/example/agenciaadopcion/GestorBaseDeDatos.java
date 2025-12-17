@@ -9,7 +9,7 @@ import java.sql.*;
 
 public class GestorBaseDeDatos {
 
-    // 1. INICIAR (Llama a la función SQL iniciar_proceso)
+    // 1. INICIAR (Llama a la función SQL iniciar_proceso)z
     public static String iniciarProceso(String idFamilia) {
         String sql = "SELECT iniciar_proceso(?)";
         try (Connection conn = ConexionDB.getConnection();
@@ -163,7 +163,6 @@ public class GestorBaseDeDatos {
 
     // 5. VALIDACIÓN DE ESTADO: ¿TIENE PROCESO ACTIVO? (Para el "Semáforo")
     public static boolean checkSolicitanteLibre(String cedula) {
-        // Esta consulta verifica si el campo solicitante_proceso_adopcion es 'Sin Asignar'
         String sql = "SELECT solicitante_proceso_adopcion FROM solicitante WHERE cedula = ?";
 
         try (Connection conn = ConexionDB.getConnection();
@@ -173,14 +172,15 @@ public class GestorBaseDeDatos {
             ResultSet rs = ps.executeQuery();
 
             if (rs.next()) {
-                String estado = rs.getString("solicitante_proceso_adopcion");
-                // Retorna TRUE solo si está libre ('Sin Asignar')
-                return "Sin Asignar".equalsIgnoreCase(estado);
+                String estado = rs.next() ? rs.getString("solicitante_proceso_adopcion") : null;
+                // EL CAMBIO: Agregamos .trim() para ignorar espacios invisibles
+                return estado != null && "Sin Asignar".equalsIgnoreCase(estado.trim());
             }
         } catch (SQLException e) {
             e.printStackTrace();
         }
-        return false; // Por defecto asumimos ocupado si falla
+        return false;
+
     }
 
     // 6. VALIDACIONES INDIVIDUALES (Llaman a funciones booleanas de SQL)

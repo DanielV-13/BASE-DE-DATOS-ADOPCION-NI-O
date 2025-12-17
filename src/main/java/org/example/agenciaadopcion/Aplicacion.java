@@ -240,16 +240,24 @@ public class Aplicacion extends Application {
             }
         });
     }
-    private void abrirVentanaValidacionAutomatica(Solicitante sol) {
+    private void abrirVentanaValidacionAutomatica(Solicitante sol) {// PASO 1: Creamos el proceso inmediatamente.
+        // Esto pone a los padres en 'Asignado' en la BD.
+        String idProcesoActivo = GestorBaseDeDatos.iniciarProceso(sol.getIdFamilia());
+
+        if (idProcesoActivo == null) {
+            mostrarAlerta("Error", "No se pudo iniciar el proceso.");
+            return;
+        }
+
         Alert alert = new Alert(Alert.AlertType.NONE);
         alert.setTitle("Fase 2: Análisis de Requisitos");
-        alert.setHeaderText("Consultando bases de datos...");
+        alert.setHeaderText("Analizando Proceso: " + idProcesoActivo);
+
 
         VBox content = new VBox(15);
         content.setPadding(new Insets(20));
         content.setMinWidth(400);
 
-        // Etiquetas de estado
         Label lblLibre    = new Label("⏳ Verificando disponibilidad de familia...");
         Label lblSalud    = new Label("⏳ Verificando salud...");
         Label lblIngresos = new Label("⏳ Verificando ingresos...");
@@ -260,91 +268,90 @@ public class Aplicacion extends Application {
         content.getChildren().addAll(lblLibre, lblSalud, lblIngresos, lblEdad, lblDocs, lblPenal);
         alert.getDialogPane().setContent(content);
 
-        ButtonType btnCrearProceso = new ButtonType("Iniciar Trámite", ButtonBar.ButtonData.OK_DONE);
+        ButtonType btnAsignarNino = new ButtonType("🔍 Buscar Niño", ButtonBar.ButtonData.OK_DONE);
         ButtonType btnCerrar = new ButtonType("Cerrar", ButtonBar.ButtonData.CANCEL_CLOSE);
         alert.getDialogPane().getButtonTypes().add(btnCerrar);
 
         new Thread(() -> {
-            try {
-                // 1. EJECUCIÓN DE VALIDACIONES
-                Thread.sleep(300);
-                boolean libreOk = GestorBaseDeDatos.checkSolicitanteLibre(sol.getCedula());
+            try {boolean libreOk = true;
                 Platform.runLater(() -> updateLbl(lblLibre, libreOk));
 
-                Thread.sleep(300);
+                // PASO 2: Continuamos con las validaciones reales
+                Thread.sleep(400); // Pequeña pausa para que el usuario vea el proceso
                 boolean saludOk = GestorBaseDeDatos.checkSalud(sol.getCedula());
                 Platform.runLater(() -> updateLbl(lblSalud, saludOk));
 
-                Thread.sleep(300);
+                Thread.sleep(400);
                 boolean ingreOk = GestorBaseDeDatos.checkIngresos(sol.getCedula());
                 Platform.runLater(() -> updateLbl(lblIngresos, ingreOk));
 
-                Thread.sleep(300);
+                Thread.sleep(400);
                 boolean edadOk = GestorBaseDeDatos.checkEdad(sol.getCedula());
                 Platform.runLater(() -> updateLbl(lblEdad, edadOk));
 
-                Thread.sleep(300);
+                Thread.sleep(400);
                 boolean docsOk = GestorBaseDeDatos.checkDocumentosCompletos(sol.getCedula());
                 Platform.runLater(() -> updateLbl(lblDocs, docsOk));
 
-                Thread.sleep(300);
+                Thread.sleep(400);
                 boolean penalOk = GestorBaseDeDatos.checkAntecedentes(sol.getCedula());
                 Platform.runLater(() -> updateLbl(lblPenal, penalOk));
 
-                // 2. TOMA DE DECISIÓN
-                if (libreOk && saludOk && ingreOk && edadOk && docsOk && penalOk) {
-                    // --- CASO DE ÉXITO ---
+                // PASO 3: TOMA DE DECISIÓN
+                if (saludOk && ingreOk && edadOk && docsOk && penalOk) {
+                    // TODO BIEN: El proceso ya está 'En Curso'
                     Platform.runLater(() -> {
-                        alert.getDialogPane().getButtonTypes().add(btnCrearProceso);
-                        alert.setHeaderText("✅ Requisitos Aprobados. Puede abrir expediente.");
-                        alert.getDialogPane().getScene().getWindow().sizeToScene();
+                        alert.getDialogPane().getButtonTypes().add(btnAsignarNino);
+                        alert.setHeaderText("✅ Requisitos Aprobados para " + idProcesoActivo);
                     });
                 } else {
-                    // --- CASO DE FALLO (DETECTIVE DE CAUSAS) ---
-                    // Aquí determinamos QUÉ falló para guardarlo en la BD
+                    // FALLO: Cancelamos y reportamos
+                    String motivo = determinarMotivo(libreOk, saludOk, ingreOk, edadOk, docsOk, penalOk);
+                    String tipo = determinarTipo(libreOk, saludOk, ingreOk, edadOk, docsOk, penalOk);
 
-                    String motivo = "No cumple requisitos generales";
-                    String tipo = "OTRO";
-
-                    if (!libreOk) {
-                        motivo = "La familia ya tiene un proceso activo";
-                        tipo = "LEGAL";
-                    } else if (!saludOk) {
-                        motivo = "Problemas de salud imposibilitantes detectados";
-                        tipo = "SALUD";
-                    } else if (!ingreOk) {
-                        motivo = "Ingresos insuficientes (Menor a $800)";
-                        tipo = "ECONOMICO";
-                    } else if (!edadOk) {
-                        motivo = "Solicitante menor de la edad reglamentaria (25 años)";
-                        tipo = "EDAD";
-                    } else if (!docsOk) {
-                        motivo = "Documentación incompleta o no presentada";
-                        tipo = "DOCUMENTOS";
-                    } else if (!penalOk) {
-                        motivo = "Registra antecedentes penales";
-                        tipo = "LEGAL";
-                    }
-
-                    // ¡ESTA ES LA LÍNEA CLAVE QUE TE FALTABA!
-                    // Guardamos el "Proceso Cancelado" automáticamente en la BD
+                    // Cambiamos estado a cancelado en BD
+                    GestorBaseDeDatos.cancelarProceso(idProcesoActivo, motivo);
+                    // Registramos el motivo para el reporte
                     GestorBaseDeDatos.registrarIntentoFallido(sol.getIdFamilia(), motivo, tipo);
 
                     Platform.runLater(() -> {
-                        alert.setHeaderText("❌ Candidato No Apto. Rechazo registrado.");
-                        alert.setContentText("Se ha guardado el motivo del rechazo en el historial.");
+                        alert.setHeaderText("❌ Proceso " + idProcesoActivo + " Cancelado.");
+                        alert.setContentText("Motivo: " + motivo);
                     });
                 }
-
-            } catch (Exception e) { e.printStackTrace(); }
+            } catch (Exception e) {
+                System.err.println("Error en el hilo de validación: " + e.getMessage());
+                e.printStackTrace();
+            }
         }).start();
 
         alert.showAndWait().ifPresent(r -> {
-            if (r == btnCrearProceso) {
-                crearProcesoYBuscar(sol);
+            if (r == btnAsignarNino) {
+                mostrarPropuestaNino(idProcesoActivo);
             }
-        });
+        });}
+
+    // --- MÉTODOS AUXILIARES PARA EL REPORTE ---
+
+    private String determinarMotivo(boolean libre, boolean salud, boolean ingre, boolean edad, boolean docs, boolean penal) {
+        if (!libre) return "La familia ya tiene un proceso activo";
+        if (!salud) return "Problemas de salud imposibilitantes detectados";
+        if (!ingre) return "Ingresos insuficientes (Menor a $800)";
+        if (!edad)  return "Solicitante menor de la edad reglamentaria (25 años)";
+        if (!docs)  return "Documentación incompleta o no presentada";
+        if (!penal) return "Registra antecedentes penales";
+        return "No cumple requisitos generales";
     }
+
+    private String determinarTipo(boolean libre, boolean salud, boolean ingre, boolean edad, boolean docs, boolean penal) {
+        if (!libre || !penal) return "LEGAL";
+        if (!salud) return "SALUD";
+        if (!ingre) return "ECONOMICO";
+        if (!edad)  return "EDAD";
+        if (!docs)  return "DOCUMENTOS";
+        return "OTRO";
+    }
+
 
     private void mostrarAlertaProcesoCreado(String idProceso) {
         Alert confirm = new Alert(Alert.AlertType.CONFIRMATION);
