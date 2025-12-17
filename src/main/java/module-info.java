@@ -31,4 +31,7 @@ module org.example.agenciaadopcion {
     opens org.example.agenciaadopcion to javafx.fxml;
     exports org.example.agenciaadopcion;
     opens org.example.agenciaadopcion.entidadesBD to javafx.base;
+
+    //REPORTES REPORTES REPORTES REPORTES
+    opens org.example.agenciaadopcion.reportes to javafx.base;
 }

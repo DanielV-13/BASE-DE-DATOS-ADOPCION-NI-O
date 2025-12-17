@@ -1,11 +1,13 @@
 package org.example.agenciaadopcion;
 
+
 import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Scene;
 import javafx.scene.control.*;
+import javafx.scene.control.cell.PropertyValueFactory;
 import javafx.scene.effect.DropShadow;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
@@ -17,6 +19,13 @@ import javafx.stage.FileChooser;
 import javafx.stage.Stage;
 import org.example.agenciaadopcion.entidadesBD.Nino;
 import org.example.agenciaadopcion.entidadesBD.Solicitante;
+import org.example.agenciaadopcion.reportes.GestorReportes;
+import org.example.agenciaadopcion.reportes.ReporteAdopcion;
+import org.example.agenciaadopcion.reportes.ReporteEstadoProceso;
+import org.example.agenciaadopcion.reportes.ReporteMotivoCancelacion;
+import javafx.stage.FileChooser;
+import org.example.agenciaadopcion.reportes.*;
+
 
 import java.io.File;
 
@@ -29,23 +38,13 @@ public class Aplicacion extends Application {
 
     @Override
     public void start(Stage stage) {
-        // Layout principal
         mainLayout = new BorderPane();
-
-        // Crear menú lateral
         createSideMenu();
-
-        // Crear área de contenido
         createContentArea();
-
-        // Agregar componentes al layout principal
         mainLayout.setLeft(sideMenu);
         mainLayout.setCenter(contentArea);
 
-        // Crear escena
         Scene scene = new Scene(mainLayout, 1000, 700);
-
-        // Configurar ventana
         try {
             Image icon = new Image(getClass().getResourceAsStream("/heart.png"));
             stage.getIcons().add(icon);
@@ -57,8 +56,6 @@ public class Aplicacion extends Application {
         stage.setScene(scene);
         stage.setResizable(true);
         stage.show();
-
-        // Mostrar página de inicio
         showHomePage();
     }
 
@@ -76,11 +73,14 @@ public class Aplicacion extends Application {
         menuTitle.setVisible(false);
         menuTitle.managedProperty().bind(menuTitle.visibleProperty());
 
-        // Botones del menú
         Button btnAdopta = createMenuButton("/casa.png", "Adopta");
         Button btnSubir = createMenuButton("/archivo.png", "Subir Excel");
         Button btnSolicitantes = createMenuButton("/familia.png", "Solicitantes");
         Button btnNinos = createMenuButton("/chico.png", "Niños");
+
+        Button btnReportes = createMenuButton("/reporte.png", "Reportes");
+        btnReportes.setOnAction(e -> showReportesPage());
+
 
         btnAdopta.setOnAction(e -> showHomePage());
         btnSubir.setOnAction(e -> showUploadPage());
@@ -88,9 +88,10 @@ public class Aplicacion extends Application {
         btnNinos.setOnAction(e -> showChildrenPage());
 
         sideMenu.getChildren().addAll(menuTitle, btnAdopta, btnSubir, btnSolicitantes, btnNinos);
-
         sideMenu.setOnMouseEntered(e -> expandMenu());
         sideMenu.setOnMouseExited(e -> collapseMenu());
+        sideMenu.getChildren().add(btnReportes);
+
     }
 
     private Button createMenuButton(String imagePath, String text) {
@@ -111,7 +112,6 @@ public class Aplicacion extends Application {
         btn.setFont(Font.font("Arial", FontWeight.BOLD, 15));
         btn.setStyle("-fx-background-color: transparent; -fx-text-fill: white; -fx-cursor: hand; -fx-padding: 12px;");
 
-        // Hover
         btn.setOnMouseEntered(e -> btn.setStyle("-fx-background-color: rgba(255, 255, 255, 0.15); -fx-text-fill: white; -fx-cursor: hand; -fx-padding: 12px; -fx-background-radius: 8px;"));
         btn.setOnMouseExited(e -> btn.setStyle("-fx-background-color: transparent; -fx-text-fill: white; -fx-cursor: hand; -fx-padding: 12px;"));
 
@@ -152,8 +152,6 @@ public class Aplicacion extends Application {
 
     private void showHomePage() {
         BorderPane homeLayout = new BorderPane();
-
-        // Zona Central
         VBox centerContent = new VBox(35);
         centerContent.setAlignment(Pos.CENTER);
         centerContent.setPadding(new Insets(20));
@@ -168,7 +166,6 @@ public class Aplicacion extends Application {
         subtitle.setTextFill(Color.web("#7f8c8d"));
         headerText.getChildren().addAll(title, subtitle);
 
-        // Tarjeta de selección
         HBox selectionBox = new HBox(15);
         selectionBox.setAlignment(Pos.CENTER);
         selectionBox.setPadding(new Insets(30, 40, 30, 40));
@@ -186,13 +183,11 @@ public class Aplicacion extends Application {
         btnIniciar.setPrefHeight(40);
         btnIniciar.setStyle("-fx-background-color: #e88188; -fx-text-fill: white; -fx-font-weight: bold; -fx-font-size: 14px; -fx-background-radius: 20; -fx-cursor: hand;");
 
-        // LÓGICA DE INICIO
         btnIniciar.setOnAction(e -> {
             String seleccion = solicitanteCombo.getValue();
             if (seleccion != null) {
-                // Extraer cédula del string "Nombre Apellido (CEDULA)"
                 String cedula = seleccion.substring(seleccion.lastIndexOf("(") + 1, seleccion.lastIndexOf(")"));
-                iniciarProcesoAdopcion(cedula); // <--- INICIO DEL FLUJO PRINCIPAL
+                iniciarProcesoAdopcion(cedula);
             } else {
                 mostrarAlerta("Atención", "Por favor seleccione un solicitante.");
             }
@@ -202,7 +197,6 @@ public class Aplicacion extends Application {
         centerContent.getChildren().addAll(headerText, selectionBox);
         homeLayout.setCenter(centerContent);
 
-        // Imagen inferior
         try {
             ImageView illustration = new ImageView(new Image(getClass().getResourceAsStream("/ilustracion_niños.png")));
             illustration.setPreserveRatio(true);
@@ -216,7 +210,7 @@ public class Aplicacion extends Application {
         contentArea.getChildren().add(homeLayout);
     }
 
-    // --- FLUJO DE ADOPCIÓN ---
+    // --- FLUJO DE ADOPCIÓN (LÓGICA CORE) ---
 
     private void iniciarProcesoAdopcion(String cedula) {
         Solicitante solicitante = GestorBaseDeDatos.buscarSolicitantePorCedula(cedula);
@@ -237,155 +231,170 @@ public class Aplicacion extends Application {
         }
 
         dialog.getDialogPane().setContent(content);
-
-        ButtonType btnNext = new ButtonType("Verificar Requisitos >", ButtonBar.ButtonData.OK_DONE);
+        ButtonType btnNext = new ButtonType("Verificar Requisitos", ButtonBar.ButtonData.OK_DONE);
         dialog.getDialogPane().getButtonTypes().addAll(btnNext, ButtonType.CANCEL);
 
         dialog.showAndWait().ifPresent(response -> {
             if (response == btnNext) {
-                // CAMBIO: Ahora vamos a verificar requisitos ANTES de pedir documentos
-                abrirVentanaRequisitosPrevios(solicitante);
+                abrirVentanaValidacionAutomatica(solicitante);
             }
         });
     }
-
-    // PASO 2: Verificación Visual (Edad, Ingresos, Salud)
-    private void abrirVentanaRequisitosPrevios(Solicitante sol) {
-        Alert alert = new Alert(Alert.AlertType.NONE); // Sin botones por defecto
-        alert.setTitle("Fase 2: Requisitos Legales");
-        alert.setHeaderText("Verificando cumplimiento de normativas...");
+    private void abrirVentanaValidacionAutomatica(Solicitante sol) {
+        Alert alert = new Alert(Alert.AlertType.NONE);
+        alert.setTitle("Fase 2: Análisis de Requisitos");
+        alert.setHeaderText("Consultando bases de datos...");
 
         VBox content = new VBox(15);
         content.setPadding(new Insets(20));
-        content.setMinWidth(350);
+        content.setMinWidth(400);
 
         // Etiquetas de estado
-        Label lblEdad = new Label("⏳ Verificando edad mínima (25 años)...");
-        Label lblIngresos = new Label("⏳ Verificando solvencia económica...");
-        Label lblSalud = new Label("⏳ Consultando historial médico...");
-        Label lblPenal = new Label("⏳ Consultando antecedentes...");
+        Label lblLibre    = new Label("⏳ Verificando disponibilidad de familia...");
+        Label lblSalud    = new Label("⏳ Verificando salud...");
+        Label lblIngresos = new Label("⏳ Verificando ingresos...");
+        Label lblEdad     = new Label("⏳ Verificando edad...");
+        Label lblDocs     = new Label("⏳ Verificando documentos...");
+        Label lblPenal    = new Label("⏳ Verificando antecedentes...");
 
-        content.getChildren().addAll(lblEdad, lblIngresos, lblSalud, lblPenal);
+        content.getChildren().addAll(lblLibre, lblSalud, lblIngresos, lblEdad, lblDocs, lblPenal);
         alert.getDialogPane().setContent(content);
 
-        // Botones (Inicialmente deshabilitados)
-        ButtonType btnContinuar = new ButtonType("Continuar a Documentación >", ButtonBar.ButtonData.OK_DONE);
-        ButtonType btnCancelar = new ButtonType("Cancelar", ButtonBar.ButtonData.CANCEL_CLOSE);
-        alert.getDialogPane().getButtonTypes().addAll(btnCancelar);
+        ButtonType btnCrearProceso = new ButtonType("Iniciar Trámite", ButtonBar.ButtonData.OK_DONE);
+        ButtonType btnCerrar = new ButtonType("Cerrar", ButtonBar.ButtonData.CANCEL_CLOSE);
+        alert.getDialogPane().getButtonTypes().add(btnCerrar);
 
-        // Tarea en segundo plano para dar efecto de "carga"
         new Thread(() -> {
             try {
-                // Simular pequeña pausa para efecto visual
-                Thread.sleep(800);
-                boolean edadOk = GestorBaseDeDatos.checkEdad(sol.getCedula());
-                Platform.runLater(() -> actualizarLabel(lblEdad, edadOk, "Edad: Apto", "Edad: Menor a 25 años"));
+                // 1. EJECUCIÓN DE VALIDACIONES
+                Thread.sleep(300);
+                boolean libreOk = GestorBaseDeDatos.checkSolicitanteLibre(sol.getCedula());
+                Platform.runLater(() -> updateLbl(lblLibre, libreOk));
 
-                Thread.sleep(500);
-                boolean ingresosOk = GestorBaseDeDatos.checkIngresos(sol.getCedula());
-                Platform.runLater(() -> actualizarLabel(lblIngresos, ingresosOk, "Ingresos: Suficientes", "Ingresos: Insuficientes (<$800)"));
-
-                Thread.sleep(500);
+                Thread.sleep(300);
                 boolean saludOk = GestorBaseDeDatos.checkSalud(sol.getCedula());
-                Platform.runLater(() -> actualizarLabel(lblSalud, saludOk, "Salud: Apto física y mentalmente", "Salud: Posee enfermedad inhabilitante"));
+                Platform.runLater(() -> updateLbl(lblSalud, saludOk));
 
-                Thread.sleep(500);
-                boolean penalOk = GestorBaseDeDatos.checkAntecedentes(sol.getCedula()); // Asumiendo que TRUE es limpio
-                Platform.runLater(() -> actualizarLabel(lblPenal, penalOk, "Antecedentes: Limpios", "Antecedentes: Registra antecedentes"));
+                Thread.sleep(300);
+                boolean ingreOk = GestorBaseDeDatos.checkIngresos(sol.getCedula());
+                Platform.runLater(() -> updateLbl(lblIngresos, ingreOk));
 
-                // Si todo está OK, habilitamos el botón continuar
-                if (edadOk && ingresosOk && saludOk && penalOk) {
+                Thread.sleep(300);
+                boolean edadOk = GestorBaseDeDatos.checkEdad(sol.getCedula());
+                Platform.runLater(() -> updateLbl(lblEdad, edadOk));
+
+                Thread.sleep(300);
+                boolean docsOk = GestorBaseDeDatos.checkDocumentosCompletos(sol.getCedula());
+                Platform.runLater(() -> updateLbl(lblDocs, docsOk));
+
+                Thread.sleep(300);
+                boolean penalOk = GestorBaseDeDatos.checkAntecedentes(sol.getCedula());
+                Platform.runLater(() -> updateLbl(lblPenal, penalOk));
+
+                // 2. TOMA DE DECISIÓN
+                if (libreOk && saludOk && ingreOk && edadOk && docsOk && penalOk) {
+                    // --- CASO DE ÉXITO ---
                     Platform.runLater(() -> {
-                        alert.getDialogPane().getButtonTypes().add(btnContinuar);
-                        alert.setHeaderText("✅ El solicitante cumple los requisitos previos.");
-                        // Redimensionar para que quepa el botón
+                        alert.getDialogPane().getButtonTypes().add(btnCrearProceso);
+                        alert.setHeaderText("✅ Requisitos Aprobados. Puede abrir expediente.");
                         alert.getDialogPane().getScene().getWindow().sizeToScene();
                     });
                 } else {
+                    // --- CASO DE FALLO (DETECTIVE DE CAUSAS) ---
+                    // Aquí determinamos QUÉ falló para guardarlo en la BD
+
+                    String motivo = "No cumple requisitos generales";
+                    String tipo = "OTRO";
+
+                    if (!libreOk) {
+                        motivo = "La familia ya tiene un proceso activo";
+                        tipo = "LEGAL";
+                    } else if (!saludOk) {
+                        motivo = "Problemas de salud imposibilitantes detectados";
+                        tipo = "SALUD";
+                    } else if (!ingreOk) {
+                        motivo = "Ingresos insuficientes (Menor a $800)";
+                        tipo = "ECONOMICO";
+                    } else if (!edadOk) {
+                        motivo = "Solicitante menor de la edad reglamentaria (25 años)";
+                        tipo = "EDAD";
+                    } else if (!docsOk) {
+                        motivo = "Documentación incompleta o no presentada";
+                        tipo = "DOCUMENTOS";
+                    } else if (!penalOk) {
+                        motivo = "Registra antecedentes penales";
+                        tipo = "LEGAL";
+                    }
+
+                    // ¡ESTA ES LA LÍNEA CLAVE QUE TE FALTABA!
+                    // Guardamos el "Proceso Cancelado" automáticamente en la BD
+                    GestorBaseDeDatos.registrarIntentoFallido(sol.getIdFamilia(), motivo, tipo);
+
                     Platform.runLater(() -> {
-                        alert.setHeaderText("❌ No se puede continuar el proceso.");
-                        alert.setContentText("El solicitante no cumple con uno o más requisitos legales.");
+                        alert.setHeaderText("❌ Candidato No Apto. Rechazo registrado.");
+                        alert.setContentText("Se ha guardado el motivo del rechazo en el historial.");
                     });
                 }
 
-            } catch (InterruptedException e) { e.printStackTrace(); }
+            } catch (Exception e) { e.printStackTrace(); }
         }).start();
 
-        alert.showAndWait().ifPresent(response -> {
-            if (response == btnContinuar) {
-                // Si pasó todo, vamos a los documentos
-                mostrarChecklistDocumentos(sol);
+        alert.showAndWait().ifPresent(r -> {
+            if (r == btnCrearProceso) {
+                crearProcesoYBuscar(sol);
             }
         });
     }
 
-    // Auxiliar para pintar labels
-    private void actualizarLabel(Label lbl, boolean ok, String textoOk, String textoError) {
+    private void mostrarAlertaProcesoCreado(String idProceso) {
+        Alert confirm = new Alert(Alert.AlertType.CONFIRMATION);
+        confirm.setTitle("Expediente Abierto");
+        confirm.setHeaderText("Proceso " + idProceso + " iniciado exitosamente");
+        confirm.setContentText("El proceso se encuentra en estado 'En Curso'.\nNo se ha asignado ningún niño todavía.\n\n¿Desea buscar una coincidencia en el sistema ahora?");
+
+        ButtonType btnBuscar = new ButtonType("🔍 Buscar Niño Aleatorio", ButtonBar.ButtonData.OK_DONE);
+        ButtonType btnMasTarde = new ButtonType("Más tarde", ButtonBar.ButtonData.CANCEL_CLOSE);
+
+        confirm.getButtonTypes().setAll(btnBuscar, btnMasTarde);
+
+        confirm.showAndWait().ifPresent(resp -> {
+            if (resp == btnBuscar) {
+                // AQUI OCURRE EL PASO 2: UPDATE PROCESO (Asignar niño)
+                mostrarPropuestaNino(idProceso);
+            } else {
+                // Si pone "Más tarde", el proceso se queda creado en BD pero sin niño.
+                showHomePage();
+            }
+        });
+    }
+
+    private void updateLbl(Label l, boolean ok) {
         if (ok) {
-            lbl.setText("✅ " + textoOk);
-            lbl.setStyle("-fx-text-fill: green; -fx-font-weight: bold;");
+            String texto = l.getText().replace("⏳ ", "");
+            l.setText("✅ " + texto + ": OK");
+            l.setStyle("-fx-text-fill: green; -fx-font-weight: bold;");
         } else {
-            lbl.setText("❌ " + textoError);
-            lbl.setStyle("-fx-text-fill: red; -fx-font-weight: bold;");
+            l.setText("❌ " + l.getText().replace("⏳ ", "") + ": FALLIDO");
+            l.setStyle("-fx-text-fill: red; -fx-font-weight: bold;");
         }
     }
 
-    // PASO 3: Documentos (Checklist)
-    private void mostrarChecklistDocumentos(Solicitante sol) {
-        Dialog<ButtonType> dialog = new Dialog<>();
-        dialog.setTitle("Fase 3: Documentación Física");
-        dialog.setHeaderText("Marque los documentos físicos entregados por el solicitante:");
-
-        VBox content = new VBox(15);
-        content.setPadding(new Insets(20));
-
-        // Nombres de documentos basados en tu DB
-        CheckBox chk1 = new CheckBox("Cédula de Identidad (DOC-0001)");
-        CheckBox chk2 = new CheckBox("Certificado de Nacimiento (DOC-0002)");
-        CheckBox chk3 = new CheckBox("Certificado Laboral (DOC-0003)");
-        CheckBox chk4 = new CheckBox("Récord Policial (DOC-0004)");
-        CheckBox chk5 = new CheckBox("Certificado Médico (DOC-0006)"); // Ojo con el ID DOC-0005 que daba error antes
-
-        content.getChildren().addAll(new Label("Documentos Requeridos:"), chk1, chk2, chk3, chk4, chk5);
-        dialog.getDialogPane().setContent(content);
-
-        ButtonType btnFinalizar = new ButtonType("Validar y Crear Proceso >", ButtonBar.ButtonData.OK_DONE);
-        dialog.getDialogPane().getButtonTypes().addAll(btnFinalizar, ButtonType.CANCEL);
-
-        dialog.showAndWait().ifPresent(response -> {
-            if (response == btnFinalizar) {
-                // 1. Guardar en BD
-                GestorBaseDeDatos.registrarDocumento(sol.getCedula(), "DOC-0001", chk1.isSelected());
-                GestorBaseDeDatos.registrarDocumento(sol.getCedula(), "DOC-0002", chk2.isSelected());
-                GestorBaseDeDatos.registrarDocumento(sol.getCedula(), "DOC-0003", chk3.isSelected());
-                GestorBaseDeDatos.registrarDocumento(sol.getCedula(), "DOC-0004", chk4.isSelected());
-                GestorBaseDeDatos.registrarDocumento(sol.getCedula(), "DOC-0006", chk5.isSelected());
-
-                // 2. Verificar si están completos en BD
-                boolean docsCompletos = GestorBaseDeDatos.checkDocumentosCompletos(sol.getCedula());
-
-                if (docsCompletos) {
-                    // 3. CREAR PROCESO (Ahora sí)
-                    String idProceso = GestorBaseDeDatos.crearProceso(sol.getIdFamilia());
-                    if (idProceso != null) {
-                        mostrarPropuestaNino(idProceso);
-                    } else {
-                        mostrarAlerta("Error", "Error al crear el proceso. Verifique si hay niños disponibles.");
-                    }
-                } else {
-                    mostrarAlerta("Documentos Faltantes", "Faltan documentos obligatorios. No se puede crear el proceso.");
-                }
-            }
-        });
+    private void crearProcesoYBuscar(Solicitante sol) {
+        String idProceso = GestorBaseDeDatos.crearProceso(sol.getIdFamilia());
+        if (idProceso != null) {
+            mostrarPropuestaNino(idProceso);
+        } else {
+            mostrarAlerta("Error", "No se pudo iniciar el proceso. Verifique si la familia ya tiene uno activo.");
+        }
     }
-
-    // PASO 4: Asignación de Niño y Finalización
     private void mostrarPropuestaNino(String idProceso) {
-        // SQL asigna un niño random (o recupera el asignado por el trigger)
+        // Llamamos a la BD para asignar (UPDATE)
         Nino nino = GestorBaseDeDatos.asignarNinoAleatorio(idProceso);
 
         if (nino == null) {
-            mostrarAlerta("Sin resultados", "No hay niños disponibles para adopción en este momento.");
+            mostrarAlerta("Sin resultados", "No hay niños disponibles para asignación.");
+            // Ojo: Si no hay niños, el proceso se queda 'En Curso' pero sin niño.
+            // O podrías cancelarlo si prefieres.
             return;
         }
 
@@ -396,7 +405,6 @@ public class Aplicacion extends Application {
         VBox card = new VBox(10);
         card.setStyle("-fx-background-color: #f0f8ff; -fx-padding: 15; -fx-background-radius: 10; -fx-border-color: #bcdff1; -fx-border-radius: 10;");
 
-        // CORREGIDO: Usamos getNombre() y getApellido() en singular, como está en Nino.java
         Label lblNombre = new Label("Nombre: " + nino.getNombre() + " " + nino.getApellido());
         lblNombre.setFont(Font.font("System", FontWeight.BOLD, 16));
 
@@ -407,25 +415,454 @@ public class Aplicacion extends Application {
         );
 
         matchAlert.getDialogPane().setContent(card);
-        ButtonType btnAdoptar = new ButtonType("💙 Formalizar Adopción", ButtonBar.ButtonData.OK_DONE);
-        matchAlert.getButtonTypes().setAll(btnAdoptar, ButtonType.CANCEL);
+        ButtonType btnAdoptar = new ButtonType("💙 Aceptar y Finalizar", ButtonBar.ButtonData.OK_DONE);
+        ButtonType btnRechazar = new ButtonType("Rechazar Propuesta", ButtonBar.ButtonData.CANCEL_CLOSE);
+
+        matchAlert.getButtonTypes().setAll(btnAdoptar, btnRechazar);
 
         matchAlert.showAndWait().ifPresent(type -> {
             if (type == btnAdoptar) {
-                // COMPLETAR PROCESO -> UPDATE SQL 'Completado'
+                // PASO FINAL: Completado
                 GestorBaseDeDatos.completarProceso(idProceso);
-                mostrarAlerta("¡Felicidades!", "El proceso ha finalizado exitosamente. ¡Gracias por dar un hogar!");
+                mostrarAlerta("¡Felicidades!", "El proceso ha finalizado. El niño ha sido adoptado.");
                 showHomePage();
             } else {
-                // RECHAZO -> UPDATE SQL 'Cancelado'
-                GestorBaseDeDatos.cancelarProceso(idProceso, "El solicitante rechazó la asignación del niño propuesto");
-                mostrarAlerta("Proceso Cancelado", "Se ha cancelado el proceso de adopción.");
+                // RECHAZO: Cancelado y liberamos al niño
+                GestorBaseDeDatos.cancelarProceso(idProceso, "El solicitante rechazó la propuesta");
+                mostrarAlerta("Proceso Cancelado", "Se ha registrado la cancelación.");
                 showHomePage();
             }
         });
     }
 
+
     // --- PÁGINAS ADICIONALES (Carga de Archivos y Tablas) ---
+    private void showReporteEstados() {
+
+
+        VBox content = new VBox(20);
+        content.setPadding(new Insets(40));
+        content.setAlignment(Pos.TOP_LEFT);
+
+
+        Label title = new Label("Reporte: Estados de Procesos");
+        title.setFont(Font.font("Segoe UI", FontWeight.NORMAL, 28));
+        title.setTextFill(Color.web("#2c3e50"));
+
+
+        Label subtitle = new Label("Cantidad de procesos por estado");
+        subtitle.setFont(Font.font("Segoe UI", FontWeight.LIGHT, 16));
+        subtitle.setTextFill(Color.web("#7f8c8d"));
+
+
+        TableView<ReporteEstadoProceso> table = new TableView<>();
+
+
+        Button btnPDF = new Button("📄 Exportar a PDF");
+        btnPDF.setStyle(
+                "-fx-background-color: #2c3e50;" +
+                        "-fx-text-fill: white;" +
+                        "-fx-font-weight: bold;" +
+                        "-fx-padding: 8 16;" +
+                        "-fx-background-radius: 8;"
+        );
+
+
+        btnPDF.setOnAction(e -> {
+
+
+            FileChooser fileChooser = new FileChooser();
+            fileChooser.setTitle("Guardar Reporte de Estados");
+            fileChooser.getExtensionFilters().add(
+                    new FileChooser.ExtensionFilter("PDF (*.pdf)", "*.pdf")
+            );
+            fileChooser.setInitialFileName("Reporte_Estados_Procesos.pdf");
+
+
+            File archivo = fileChooser.showSaveDialog(null);
+
+
+            if (archivo != null) {
+                try {
+                    ReporteEstadosPDF.generar(
+                            GestorReportes.obtenerReporteEstados(),
+                            archivo.getAbsolutePath()
+                    );
+
+
+                    mostrarAlerta(
+                            "PDF generado",
+                            "El reporte se guardó correctamente."
+                    );
+
+
+                } catch (Exception ex) {
+                    ex.printStackTrace();
+                    mostrarAlerta(
+                            "Error",
+                            "No se pudo generar el PDF."
+                    );
+                }
+            }
+        });
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        TableColumn<ReporteEstadoProceso, String> colEstado =
+                new TableColumn<>("Estado del Proceso");
+        colEstado.setCellValueFactory(
+                new PropertyValueFactory<>("estadoProceso")
+        );
+
+
+        TableColumn<ReporteEstadoProceso, Integer> colCantidad =
+                new TableColumn<>("Cantidad");
+        colCantidad.setCellValueFactory(
+                new PropertyValueFactory<>("cantidad")
+        );
+
+
+        table.setItems(GestorReportes.obtenerReporteEstados());
+
+
+        table.getColumns().addAll(colEstado, colCantidad);
+        table.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY);
+
+
+
+
+        content.getChildren().addAll(title, subtitle, table, btnPDF);
+
+
+        contentArea.getChildren().clear();
+        contentArea.getChildren().add(content);
+    }
+
+
+
+
+    private void showReporteMotivos() {
+
+
+        VBox content = new VBox(20);
+        content.setPadding(new Insets(40));
+        content.setAlignment(Pos.TOP_LEFT);
+
+
+        Label title = new Label("Reporte: Motivos de Cancelación");
+        title.setFont(Font.font("Segoe UI", FontWeight.NORMAL, 28));
+        title.setTextFill(Color.web("#2c3e50"));
+
+
+        Label subtitle = new Label("Causas más frecuentes de cancelación de procesos");
+        subtitle.setFont(Font.font("Segoe UI", FontWeight.LIGHT, 16));
+        subtitle.setTextFill(Color.web("#7f8c8d"));
+
+
+        TableView<ReporteMotivoCancelacion> table = new TableView<>();
+
+
+        Button btnPDF = new Button("📄 Exportar a PDF");
+        btnPDF.setStyle(
+                "-fx-background-color: #2c3e50;" +
+                        "-fx-text-fill: white;" +
+                        "-fx-font-weight: bold;" +
+                        "-fx-padding: 8 16;" +
+                        "-fx-background-radius: 8;"
+        );
+
+
+
+
+        btnPDF.setOnAction(e -> {
+
+
+            FileChooser fileChooser = new FileChooser();
+            fileChooser.setTitle("Guardar Reporte de Motivos de Cancelación");
+            fileChooser.getExtensionFilters().add(
+                    new FileChooser.ExtensionFilter("PDF (*.pdf)", "*.pdf")
+            );
+            fileChooser.setInitialFileName("Reporte_Motivos_Cancelacion.pdf");
+
+
+            File archivo = fileChooser.showSaveDialog(null);
+
+
+            if (archivo != null) {
+                try {
+                    ReporteMotivosPDF.generar(
+                            GestorReportes.obtenerReporteMotivos(),
+                            archivo.getAbsolutePath()
+                    );
+
+
+                    mostrarAlerta(
+                            "PDF generado",
+                            "El reporte se guardó correctamente."
+                    );
+
+
+                } catch (Exception ex) {
+                    ex.printStackTrace();
+                    mostrarAlerta(
+                            "Error",
+                            "No se pudo generar el PDF."
+                    );
+                }
+            }
+        });
+
+
+
+
+
+
+
+
+
+
+
+
+        TableColumn<ReporteMotivoCancelacion, String> colMotivo =
+                new TableColumn<>("Tipo de Motivo");
+        colMotivo.setCellValueFactory(
+                new PropertyValueFactory<>("tipoMotivo")
+        );
+
+
+        TableColumn<ReporteMotivoCancelacion, Integer> colCantidad =
+                new TableColumn<>("Cantidad");
+        colCantidad.setCellValueFactory(
+                new PropertyValueFactory<>("cantidad")
+        );
+
+
+        TableColumn<ReporteMotivoCancelacion, String> colEjemplos =
+                new TableColumn<>("Ejemplos / Comentarios");
+        colEjemplos.setCellValueFactory(
+                new PropertyValueFactory<>("ejemplos")
+        );
+
+
+        table.getColumns().addAll(colMotivo, colCantidad, colEjemplos);
+        table.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY);
+
+
+        // 🔥 AQUÍ ESTÁ LA CLAVE
+        table.setItems(GestorReportes.obtenerReporteMotivos());
+
+
+
+
+        content.getChildren().addAll(title, subtitle, table, btnPDF);
+
+
+        contentArea.getChildren().clear();
+        contentArea.getChildren().add(content);
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    private void showReporteAdopciones() {
+
+
+        VBox content = new VBox(20);
+        content.setPadding(new Insets(40));
+        content.setAlignment(Pos.TOP_LEFT);
+
+
+        Label title = new Label("Reporte: Adopciones Completadas");
+        title.setFont(Font.font("Segoe UI", FontWeight.NORMAL, 28));
+        title.setTextFill(Color.web("#2c3e50"));
+
+
+        Label subtitle = new Label("Listado de procesos completados con familia y niño asignado");
+        subtitle.setFont(Font.font("Segoe UI", FontWeight.LIGHT, 16));
+        subtitle.setTextFill(Color.web("#7f8c8d"));
+
+
+        TableView<ReporteAdopcion> table = new TableView<>();
+
+
+        Button btnPDF = new Button("📄 Exportar a PDF");
+        btnPDF.setStyle(
+                "-fx-background-color: #2c3e50;" +
+                        "-fx-text-fill: white;" +
+                        "-fx-font-weight: bold;" +
+                        "-fx-padding: 8 16;" +
+                        "-fx-background-radius: 8;"
+        );
+
+
+        btnPDF.setOnAction(e -> {
+
+
+            FileChooser fileChooser = new FileChooser();
+            fileChooser.setTitle("Guardar Reporte de Adopciones");
+            fileChooser.getExtensionFilters().add(
+                    new FileChooser.ExtensionFilter("PDF (*.pdf)", "*.pdf")
+            );
+            fileChooser.setInitialFileName("Reporte_Adopciones_Completadas.pdf");
+
+
+            File archivo = fileChooser.showSaveDialog(null);
+
+
+            if (archivo != null) {
+                try {
+                    ReporteAdopcionesPDF.generar(
+                            GestorReportes.obtenerReporteAdopciones(),
+                            archivo.getAbsolutePath()
+                    );
+
+
+                    mostrarAlerta(
+                            "PDF generado",
+                            "El reporte se guardó correctamente."
+                    );
+
+
+                } catch (Exception ex) {
+                    ex.printStackTrace();
+                    mostrarAlerta(
+                            "Error",
+                            "No se pudo generar el PDF."
+                    );
+                }
+            }
+        });
+
+
+
+
+        TableColumn<ReporteAdopcion, String> colProceso = new TableColumn<>("Proceso");
+        colProceso.setCellValueFactory(new PropertyValueFactory<>("idProceso"));
+
+
+        TableColumn<ReporteAdopcion, String> colPadres = new TableColumn<>("Padres");
+        colPadres.setCellValueFactory(new PropertyValueFactory<>("padres"));
+
+
+        TableColumn<ReporteAdopcion, String> colNino = new TableColumn<>("Niño");
+        colNino.setCellValueFactory(new PropertyValueFactory<>("nombreNino"));
+
+
+        TableColumn<ReporteAdopcion, String> colSexo = new TableColumn<>("Sexo");
+        colSexo.setCellValueFactory(new PropertyValueFactory<>("sexoNino"));
+
+
+        TableColumn<ReporteAdopcion, String> colEducacion = new TableColumn<>("Educación");
+        colEducacion.setCellValueFactory(new PropertyValueFactory<>("nivelEducacion"));
+
+
+        TableColumn<ReporteAdopcion, String> colFecha = new TableColumn<>("Fecha");
+        colFecha.setCellValueFactory(cell ->
+                new javafx.beans.property.SimpleStringProperty(
+                        cell.getValue().getFechaSolicitud() != null ? cell.getValue().getFechaSolicitud().toString() : ""
+                )
+        );
+
+
+        table.getColumns().addAll(colProceso, colPadres, colNino, colSexo, colEducacion, colFecha);
+        table.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY);
+
+
+        table.setItems(GestorReportes.obtenerReporteAdopciones());
+
+
+
+
+
+
+        content.getChildren().addAll(title, subtitle, table, btnPDF);
+
+
+        contentArea.getChildren().clear();
+        contentArea.getChildren().add(content);
+    }
+
+
+
+
+
+
+
+
+
+
+    //REPORTES REPORTES PAGEE
+    private void showReportesPage() {
+        VBox content = new VBox(20);
+        content.setPadding(new Insets(40));
+        content.setAlignment(Pos.TOP_LEFT);
+
+
+        Label title = new Label("Reportes del Sistema");
+        title.setFont(Font.font("Segoe UI", FontWeight.NORMAL, 28));
+        title.setTextFill(Color.web("#2c3e50"));
+
+
+
+
+        Button btnReporteEstados = new Button("📊 Estados de Procesos");
+        Button btnReporteMotivos = new Button("❌ Motivos de Cancelación");
+        Button btnReporteAdopciones = new Button("📄 Adopciones Completadas");
+
+
+        btnReporteAdopciones.setOnAction(e -> showReporteAdopciones());
+        btnReporteEstados.setOnAction(e -> showReporteEstados());
+        btnReporteMotivos.setOnAction(e -> showReporteMotivos());
+
+
+        content.getChildren().addAll(
+                title,
+                btnReporteAdopciones,
+                btnReporteEstados,
+                btnReporteMotivos
+        );
+
+
+        contentArea.getChildren().clear();
+        contentArea.getChildren().add(content);
+    }
+
+
+
+
+
+
+
+
+
+
+
+
 
     private void showUploadPage() {
         VBox content = new VBox(25);
@@ -446,7 +883,6 @@ public class Aplicacion extends Application {
         card.setStyle("-fx-background-color: white; -fx-background-radius: 20px;");
         card.setEffect(new DropShadow(30, Color.rgb(0, 0, 0, 0.08)));
 
-        // Área de Log
         TextArea txtLog = new TextArea();
         txtLog.setEditable(false);
         txtLog.setPrefHeight(150);
@@ -458,6 +894,7 @@ public class Aplicacion extends Application {
         Button uploadBtn = new Button("Seleccionar archivo Excel");
         uploadBtn.setStyle("-fx-background-color: #34495E; -fx-text-fill: white; -fx-font-family: 'Segoe UI'; -fx-font-size: 16px; -fx-font-weight: bold; -fx-padding: 12px 30px; -fx-background-radius: 25px; -fx-cursor: hand;");
 
+        // --- LÓGICA DE CARGA MODIFICADA PARA USAR VALIDACIÓN ---
         uploadBtn.setOnAction(e -> {
             FileChooser fileChooser = new FileChooser();
             fileChooser.setTitle("Seleccionar Excel de Base de Datos");
@@ -467,11 +904,35 @@ public class Aplicacion extends Application {
             if (archivo != null) {
                 txtLog.setVisible(true);
                 txtLog.setManaged(true);
-                txtLog.setText("⏳ Procesando archivo... Por favor espere.");
+                txtLog.setText("⏳ Analizando archivo... Por favor espere.");
 
+                // Usamos Hilo para no congelar la UI mientras lee
                 new Thread(() -> {
-                    String resultado = LectorDeArchivos.importarExcelCompleto(archivo);
-                    Platform.runLater(() -> txtLog.setText(resultado));
+                    // PASO 1: VALIDACIÓN
+                    String reporteValidacion = LectorDeArchivos.validarIntegridad(archivo);
+
+                    Platform.runLater(() -> {
+                        txtLog.setText(reporteValidacion); // Mostramos el reporte
+
+                        // PASO 2: CONFIRMACIÓN (Solo si no hay errores fatales)
+                        if (!reporteValidacion.contains("❌ EL ARCHIVO TIENE ERRORES")) {
+                            Alert confirm = new Alert(Alert.AlertType.CONFIRMATION);
+                            confirm.setTitle("Confirmar Importación");
+                            confirm.setHeaderText("Validación Exitosa");
+                            confirm.setContentText("El archivo parece correcto. ¿Desea proceder a guardar los datos en la base de datos?");
+
+                            confirm.showAndWait().ifPresent(response -> {
+                                if (response == ButtonType.OK) {
+                                    txtLog.appendText("\n\n⏳ Guardando en PostgreSQL...");
+                                    new Thread(() -> {
+                                        // PASO 3: EJECUCIÓN REAL
+                                        String resultadoFinal = LectorDeArchivos.importarExcelBD(archivo);
+                                        Platform.runLater(() -> txtLog.setText(resultadoFinal));
+                                    }).start();
+                                }
+                            });
+                        }
+                    });
                 }).start();
             }
         });
@@ -505,7 +966,6 @@ public class Aplicacion extends Application {
         TableColumn<Solicitante, String> colEmail = new TableColumn<>("Email");
         colEmail.setCellValueFactory(new javafx.scene.control.cell.PropertyValueFactory<>("email"));
 
-        // Ingresos formateados
         TableColumn<Solicitante, String> colIngreso = new TableColumn<>("Ingreso Mensual");
         colIngreso.setCellValueFactory(cell ->
                 new javafx.beans.property.SimpleStringProperty("$ " + cell.getValue().getIngreso())
@@ -532,7 +992,6 @@ public class Aplicacion extends Application {
 
         TableView<Nino> table = new TableView<>();
 
-        // CORREGIDO: Usamos "nombre" y "apellido" en singular para coincidir con tu clase Nino.java
         TableColumn<Nino, String> colNombre = new TableColumn<>("Nombre");
         colNombre.setCellValueFactory(new javafx.scene.control.cell.PropertyValueFactory<>("nombre"));
 
@@ -554,8 +1013,6 @@ public class Aplicacion extends Application {
         contentArea.getChildren().clear();
         contentArea.getChildren().add(content);
     }
-
-    // --- UTILIDADES ---
 
     private VBox crearTarjetaInfo(Solicitante s) {
         VBox box = new VBox(5);
@@ -580,4 +1037,7 @@ public class Aplicacion extends Application {
     public static void main(String[] args) {
         launch(args);
     }
+
+
+
 }
