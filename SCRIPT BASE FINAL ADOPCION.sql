@@ -1,0 +1,1510 @@
+--
+-- PostgreSQL database dump
+--
+
+
+
+-- Dumped from database version 17.6
+-- Dumped by pg_dump version 17.6
+
+SET statement_timeout = 0;
+SET lock_timeout = 0;
+SET idle_in_transaction_session_timeout = 0;
+SET transaction_timeout = 0;
+SET client_encoding = 'UTF8';
+SET standard_conforming_strings = on;
+SELECT pg_catalog.set_config('search_path', '', false);
+SET check_function_bodies = false;
+SET xmloption = content;
+SET client_min_messages = warning;
+SET row_security = off;
+
+--
+-- Name: asignar_nino_aleatorio(character varying); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.asignar_nino_aleatorio(p_id_proceso character varying) RETURNS TABLE(id_nino character varying, nombres character varying, apellidos character varying, sexo character varying, nivel_educacion character varying)
+    LANGUAGE plpgsql
+    AS $$
+DECLARE 
+    v_id_nino VARCHAR;
+BEGIN
+    -- Buscar niño libre
+    SELECT n.id_niño INTO v_id_nino 
+    FROM "niño" n WHERE TRIM(n.Niño_Proceso_Adopcion) = 'Sin Asignar' 
+    ORDER BY random() LIMIT 1;
+    
+    IF v_id_nino IS NULL THEN RETURN; END IF;
+
+    -- Vincular al proceso
+    UPDATE proceso SET id_niño = v_id_nino WHERE id_proceso = p_id_proceso;
+    
+    -- Marcar niño ocupado
+    UPDATE "niño" SET Niño_Proceso_Adopcion = 'Asignado' WHERE id_niño = v_id_nino;
+    
+    RETURN QUERY SELECT n.id_niño, n.nombres, n.apellidos, n.sexo, n.nivel_educacion 
+    FROM "niño" n WHERE n.id_niño = v_id_nino;
+END;
+$$;
+
+
+--
+-- Name: buscar_pareja_familia(character varying, character varying); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.buscar_pareja_familia(p_id_familia character varying, p_cedula_excluir character varying) RETURNS TABLE(id_solicitante character varying, cedula character varying, nombres character varying, apellidos character varying, telefono character varying, email character varying, id_familia character varying, ingreso_mensual numeric)
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    RETURN QUERY SELECT s.id_solicitante, s.cedula, s.nombres, s.apellidos, 
+                        s.telefono, s.email, s.id_familia, s.ingreso_mensual::numeric
+                 FROM solicitante s 
+                 WHERE s.id_familia = p_id_familia AND s.cedula != p_cedula_excluir;
+END; $$;
+
+
+--
+-- Name: buscar_solicitante_completo(character varying); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.buscar_solicitante_completo(p_cedula character varying) RETURNS TABLE(id_solicitante character varying, cedula character varying, nombres character varying, apellidos character varying, telefono character varying, email character varying, id_familia character varying, ingreso_mensual numeric)
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    RETURN QUERY SELECT s.id_solicitante, s.cedula, s.nombres, s.apellidos, 
+                        s.telefono, s.email, s.id_familia, s.ingreso_mensual::numeric
+                 FROM solicitante s WHERE s.cedula = p_cedula;
+END; $$;
+
+
+--
+-- Name: cambios(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.cambios() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    INSERT INTO control_cambios (usuario, fecha, accion, tabla)
+    VALUES (current_user, NOW(), TG_OP, TG_TABLE_NAME);
+
+    RETURN NULL;
+END;
+$$;
+
+
+--
+-- Name: cancelar_proceso(character varying, character varying); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.cancelar_proceso(p_id_proceso character varying, p_motivo character varying) RETURNS void
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+    v_id_familia VARCHAR;
+BEGIN
+    SELECT id_familia INTO v_id_familia FROM proceso WHERE id_proceso = p_id_proceso;
+
+    -- Actualizamos a Cancelado
+    UPDATE proceso 
+    SET estado_proceso = 'Cancelado',
+        fecha_finalizacion = CURRENT_DATE
+    WHERE id_proceso = p_id_proceso;
+
+    -- Liberamos a la familia y al niño (si hubiera uno pre-asignado)
+    UPDATE solicitante SET solicitante_proceso_adopcion = 'Sin Asignar' WHERE id_familia = v_id_familia;
+    
+    -- Guardamos el motivo
+    INSERT INTO motivo_cancelacion (id_proceso, tipo_motivo, detalle_motivo)
+    VALUES (p_id_proceso, 'OTRO', p_motivo);
+END;
+$$;
+
+
+--
+-- Name: completar_proceso(character varying); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.completar_proceso(p_id_proceso character varying) RETURNS void
+    LANGUAGE plpgsql
+    AS $$
+DECLARE v_id_nino VARCHAR; v_id_familia VARCHAR;
+BEGIN
+    SELECT id_niño, id_familia INTO v_id_nino, v_id_familia FROM proceso WHERE id_proceso = p_id_proceso;
+
+    IF v_id_nino IS NOT NULL THEN
+        UPDATE proceso SET estado_proceso = 'Completado', fecha_finalizacion = CURRENT_DATE WHERE id_proceso = p_id_proceso;
+        UPDATE niño SET "Niño_Proceso_Adopcion" = 'Adoptado' WHERE id_niño = v_id_nino;
+        UPDATE solicitante SET solicitante_proceso_adopcion = 'Sin Asignar' WHERE id_familia = v_id_familia;
+    END IF;
+END;
+$$;
+
+
+--
+-- Name: crear_proceso_adopcion(character varying); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.crear_proceso_adopcion(p_id_familia character varying) RETURNS character varying
+    LANGUAGE plpgsql
+    AS $$
+DECLARE v_id_nuevo VARCHAR;
+BEGIN
+    -- Lógica original de crear proceso
+    INSERT INTO proceso (id_familia, id_niño, fecha_solicitud, estado_proceso) 
+    VALUES (p_id_familia, NULL, CURRENT_DATE, 'En Curso') 
+    RETURNING id_proceso INTO v_id_nuevo;
+
+    UPDATE solicitante SET solicitante_proceso_adopcion = 'Asignado' WHERE id_familia = p_id_familia;
+
+    RETURN v_id_nuevo;
+END;
+$$;
+
+
+--
+-- Name: finalizar_proceso(character varying, character varying); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.finalizar_proceso(p_id_proceso character varying, p_id_nino character varying) RETURNS void
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+    v_id_familia VARCHAR;
+BEGIN
+    -- Recuperamos el ID de la familia antes de cerrar todo
+    SELECT id_familia INTO v_id_familia FROM proceso WHERE id_proceso = p_id_proceso;
+
+    -- 1. Actualizamos el Proceso (La parte central de tu idea)
+    UPDATE proceso 
+    SET estado_proceso = 'Completado',
+        id_niño = p_id_nino,          -- Guardamos qué niño fue
+        fecha_finalizacion = CURRENT_DATE
+    WHERE id_proceso = p_id_proceso;
+
+    -- 2. Actualizamos al Niño (¡Final feliz!)
+    UPDATE "niño" 
+    SET Niño_Proceso_Adopcion = 'Adoptado' 
+    WHERE id_niño = p_id_nino;
+
+    -- 3. Liberamos a la Familia (Para que el sistema quede limpio)
+    UPDATE solicitante 
+    SET solicitante_proceso_adopcion = 'Sin Asignar' 
+    WHERE id_familia = v_id_familia;
+END;
+$$;
+
+
+--
+-- Name: generar_id_familia(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.generar_id_familia() RETURNS character varying
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+    nuevo_id VARCHAR(10);
+BEGIN
+    SELECT 'FAM-' || LPAD(
+        (COALESCE(MAX(SUBSTRING(id_familia, 5)::INT), 0) + 1)::TEXT,
+        4,
+        '0'
+    )
+    INTO nuevo_id
+    FROM familia;
+
+    RETURN nuevo_id;
+END;
+$$;
+
+
+--
+-- Name: generar_id_niño(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public."generar_id_niño"() RETURNS character varying
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+    nuevo_id VARCHAR(10);
+BEGIN
+    SELECT 'NIN-' || LPAD(
+        (COALESCE(MAX(SUBSTRING(id_niño, 5)::INT), 0) + 1)::TEXT,
+        4,
+        '0'
+    )
+    INTO nuevo_id
+    FROM niño;
+
+    RETURN nuevo_id;
+END;
+$$;
+
+
+--
+-- Name: generar_id_proceso(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.generar_id_proceso() RETURNS character varying
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+    nuevo_id VARCHAR(10);
+BEGIN
+    SELECT 'PRO-' || LPAD(
+        (COALESCE(MAX(SUBSTRING(id_proceso, 5)::INT), 0) + 1)::TEXT,
+        4,
+        '0'
+    )
+    INTO nuevo_id
+    FROM proceso;
+
+    RETURN nuevo_id;
+END;
+$$;
+
+
+--
+-- Name: generar_id_solicitante(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.generar_id_solicitante() RETURNS character varying
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+    nuevo_id VARCHAR(10);
+BEGIN
+    SELECT 'SOL-' || LPAD(
+        (COALESCE(MAX(SUBSTRING(id_solicitante, 5)::INT), 0) + 1)::TEXT,
+        4,
+        '0'
+    )
+    INTO nuevo_id
+    FROM solicitante;
+
+    RETURN nuevo_id;
+END;
+$$;
+
+
+--
+-- Name: importar_ambito_documento(character varying, character varying, boolean); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.importar_ambito_documento(p_id_doc character varying, p_ambito character varying, p_obligatorio boolean) RETURNS void
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    -- Solo insertamos si el tipo de documento existe (seguridad)
+    IF EXISTS (SELECT 1 FROM tipo_documento WHERE id_tipodocumento = p_id_doc) THEN
+        INSERT INTO ambito_documento (id_tipodocumento, ambito, obligatoriedad)
+        VALUES (p_id_doc, p_ambito, p_obligatorio)
+        ON CONFLICT (id_tipodocumento, ambito) DO NOTHING;
+    END IF;
+END;
+$$;
+
+
+--
+-- Name: importar_enfermedad(character varying, character varying, character varying); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.importar_enfermedad(p_id character varying, p_nombre character varying, p_imposib character varying) RETURNS void
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    INSERT INTO enfermedad (id_enfermedad, nombre_enfermedad, imposibilitante)
+    VALUES (p_id, p_nombre, p_imposib)
+    ON CONFLICT (id_enfermedad) DO UPDATE 
+    SET nombre_enfermedad = EXCLUDED.nombre_enfermedad; -- Actualiza si ya existe
+END;
+$$;
+
+
+--
+-- Name: importar_familia(character varying, character varying, character varying, character varying); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.importar_familia(p_id character varying, p_tipo character varying, p_dir character varying, p_ciudad character varying) RETURNS void
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    INSERT INTO familia (id_familia, tipo_familia, direccion_residencia_solicitante, ciudad)
+    VALUES (p_id, p_tipo, p_dir, p_ciudad)
+    ON CONFLICT (id_familia) DO UPDATE 
+    SET direccion_residencia_solicitante = EXCLUDED.direccion_residencia_solicitante;
+END;
+$$;
+
+
+--
+-- Name: importar_nino(character varying, character varying, character varying, character varying, character varying, character varying, date, character varying); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.importar_nino(p_id character varying, p_cedula character varying, p_estado_adop character varying, p_nom character varying, p_ape character varying, p_sexo character varying, p_fec_nac date, p_nivel character varying) RETURNS void
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    INSERT INTO niño (
+        id_niño, 
+        cedula, 
+        niño_proceso_adopcion, -- <--- SIN COMILLAS (PostgreSQL lo encontrará en minúsculas)
+        nombres, 
+        apellidos, 
+        sexo, 
+        fecha_nacimiento, 
+        nivel_educacion
+    ) VALUES (
+        p_id, p_cedula, p_estado_adop, 
+        p_nom, p_ape, p_sexo, p_fec_nac, p_nivel
+    )
+    ON CONFLICT (id_niño) DO NOTHING;
+END;
+$$;
+
+
+--
+-- Name: importar_proceso(character varying, character varying, character varying, date, character varying, date); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.importar_proceso(p_id character varying, p_id_nino character varying, p_id_fam character varying, p_fec_sol date, p_estado character varying, p_fec_fin date) RETURNS void
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    -- Manejo de strings vacíos para el niño (si viene vacío, es NULL)
+    IF p_id_nino = '' OR p_id_nino = 'NULL' THEN p_id_nino := NULL; END IF;
+
+    INSERT INTO proceso (
+        id_proceso, id_niño, id_familia, fecha_solicitud, estado_proceso, fecha_finalizacion
+    ) VALUES (
+        p_id, p_id_nino, p_id_fam, p_fec_sol, p_estado, p_fec_fin
+    )
+    ON CONFLICT (id_proceso) DO NOTHING;
+END;
+$$;
+
+
+--
+-- Name: importar_solicitante(character varying, character varying, character varying, character varying, character varying, character varying, character varying, date, character varying, character varying, character varying, character varying, numeric); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.importar_solicitante(p_id character varying, p_id_fam character varying, p_estado_adop character varying, p_cedula character varying, p_nom character varying, p_ape character varying, p_sexo character varying, p_fec_nac date, p_civil character varying, p_prof character varying, p_telf character varying, p_email character varying, p_ingreso numeric) RETURNS void
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    INSERT INTO solicitante (
+        id_solicitante, id_familia, solicitante_proceso_adopcion, -- <--- Nombre corregido aquí
+        cedula, nombres, apellidos, sexo, fecha_nacimiento, 
+        estado_civil, profesion, telefono, email, ingreso_mensual
+    ) VALUES (
+        p_id, p_id_fam, p_estado_adop, 
+        p_cedula, p_nom, p_ape, p_sexo, p_fec_nac, 
+        p_civil, p_prof, p_telf, p_email, p_ingreso::money
+    )
+    ON CONFLICT (id_solicitante) DO UPDATE 
+    SET ingreso_mensual = EXCLUDED.ingreso_mensual;
+END;
+$$;
+
+
+--
+-- Name: importar_tiene_nino_enfermedad(character varying, character varying); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.importar_tiene_nino_enfermedad(p_id_nino character varying, p_id_enf character varying) RETURNS void
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    INSERT INTO tiene_niño_enfermedad (id_niño, id_enfermedad) VALUES (p_id_nino, p_id_enf) ON CONFLICT DO NOTHING;
+END; $$;
+
+
+--
+-- Name: importar_tiene_solicitante_enfermedad(character varying, character varying); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.importar_tiene_solicitante_enfermedad(p_id_sol character varying, p_id_enf character varying) RETURNS void
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    INSERT INTO tiene_solicitante_enfermedad (id_solicitante, id_enfermedad) VALUES (p_id_sol, p_id_enf) ON CONFLICT DO NOTHING;
+END; $$;
+
+
+--
+-- Name: importar_tipo_documento(character varying, character varying); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.importar_tipo_documento(p_id character varying, p_nombre character varying) RETURNS void
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    INSERT INTO tipo_documento (id_tipodocumento, nombre_doc)
+    VALUES (p_id, p_nombre)
+    ON CONFLICT (id_tipodocumento) DO NOTHING;
+END;
+$$;
+
+
+--
+-- Name: importar_verif_doc_nino(character varying, character varying, boolean); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.importar_verif_doc_nino(p_id_doc character varying, p_id_nino character varying, p_presentado boolean) RETURNS void
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    INSERT INTO verif_doc_niño (id_tipodocumento, id_niño, presentado) VALUES (p_id_doc, p_id_nino, p_presentado) ON CONFLICT DO NOTHING;
+END; $$;
+
+
+--
+-- Name: importar_verif_doc_proceso(character varying, character varying, boolean); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.importar_verif_doc_proceso(p_id_doc character varying, p_id_proc character varying, p_presentado boolean) RETURNS void
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    INSERT INTO verif_doc_proceso (id_tipodocumento, id_proceso, presentado) VALUES (p_id_doc, p_id_proc, p_presentado) ON CONFLICT DO NOTHING;
+END; $$;
+
+
+--
+-- Name: importar_verif_doc_solicitante(character varying, character varying, boolean); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.importar_verif_doc_solicitante(p_id_doc character varying, p_id_sol character varying, p_presentado boolean) RETURNS void
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    INSERT INTO verif_doc_solicitante (id_tipodocumento, id_solicitante, presentado) VALUES (p_id_doc, p_id_sol, p_presentado) ON CONFLICT DO NOTHING;
+END; $$;
+
+
+--
+-- Name: iniciar_proceso(character varying); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.iniciar_proceso(p_id_familia character varying) RETURNS character varying
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+    v_id_nuevo VARCHAR;
+BEGIN
+    -- Validamos que no tengan proceso activo (Doble seguridad)
+    IF EXISTS (SELECT 1 FROM solicitante WHERE id_familia = p_id_familia AND solicitante_proceso_adopcion <> 'Sin Asignar') THEN
+        RAISE EXCEPTION 'La familia ya tiene un proceso activo.';
+    END IF;
+
+    -- INSERTAMOS SIN ID. 
+    -- Tu trigger 'trg_id_proceso' saltará aquí y creará el ID (ej: PRO-0005).
+    -- Usamos 'RETURNING' para capturar ese ID nuevo y devolverlo a Java.
+    INSERT INTO proceso (
+        id_familia, 
+        id_niño, 
+        fecha_solicitud, 
+        estado_proceso, 
+        fecha_finalizacion
+    ) VALUES (
+        p_id_familia, 
+        NULL, 
+        CURRENT_DATE, 
+        'En Curso', 
+        NULL
+    ) RETURNING id_proceso INTO v_id_nuevo; -- <--- ¡AQUÍ CAPTURAMOS TU ID!
+
+    -- Marcamos a los padres
+    UPDATE solicitante 
+    SET solicitante_proceso_adopcion = 'Asignado' 
+    WHERE id_familia = p_id_familia;
+
+    -- Devolvemos el ID bonito (PRO-XXXX) a Java
+    RETURN v_id_nuevo;
+END;
+$$;
+
+
+--
+-- Name: listar_ninos_disponibles(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.listar_ninos_disponibles() RETURNS TABLE("id_niño" character varying, nombres character varying, apellidos character varying, sexo character varying, nivel_educacion character varying)
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    RETURN QUERY 
+    SELECT 
+        n.id_niño, 
+        n.nombres, 
+        n.apellidos, 
+        n.sexo, 
+        n.nivel_educacion 
+    FROM "niño" n 
+    WHERE TRIM(n.Niño_Proceso_Adopcion) = 'Sin Asignar';
+END;
+$$;
+
+
+--
+-- Name: listar_solicitantes(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.listar_solicitantes() RETURNS TABLE(id_solicitante character varying, id_familia character varying, cedula character varying, nombres character varying, apellidos character varying, sexo character varying, fecha_nacimiento date, estado_civil character varying, profesion character varying, email character varying, telefono character varying, ingreso numeric)
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    RETURN QUERY 
+    SELECT 
+        s.id_solicitante,
+        s.id_familia, 
+        s.cedula, 
+        s.nombres, 
+        s.apellidos, 
+        s.sexo, 
+        s.fecha_nacimiento, 
+        s.estado_civil, 
+        s.profesion, 
+        s.email, 
+        s.telefono,
+        s.ingreso_mensual::numeric -- Cast de money a numeric para Java
+    FROM solicitante s
+    WHERE UPPER(TRIM(s.solicitante_proceso_adopcion)) = 'SIN ASIGNAR';
+
+END;
+$$;
+
+
+--
+-- Name: obtener_info_solicitante(character varying); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.obtener_info_solicitante(p_cedula character varying) RETURNS TABLE(cedula character varying, nombres character varying, apellidos character varying, telefono character varying, email character varying, id_familia character varying, ingreso numeric)
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    RETURN QUERY 
+    SELECT 
+        s.cedula, 
+        s.nombres, 
+        s.apellidos, 
+        s.telefono, 
+        s.email, 
+        s.id_familia, 
+        s.ingreso_mensual::numeric 
+    FROM solicitante s 
+    WHERE s.cedula = p_cedula;
+END;
+$$;
+
+
+--
+-- Name: registrar_intento_fallido(character varying, character varying, character varying); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.registrar_intento_fallido(p_id_familia character varying, p_motivo character varying, p_tipo_motivo character varying) RETURNS void
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+    v_id_nuevo VARCHAR;
+BEGIN
+    -- 1. Insertar el proceso directamente como 'Cancelado'
+    -- (El trigger trg_id_proceso generará el ID automáticamente)
+    INSERT INTO proceso (id_familia, id_niño, fecha_solicitud, estado_proceso, fecha_finalizacion)
+    VALUES (p_id_familia, NULL, CURRENT_DATE, 'Cancelado', CURRENT_DATE)
+    RETURNING id_proceso INTO v_id_nuevo;
+
+    -- 2. Insertar inmediatamente el motivo en la tabla de reporte
+    INSERT INTO motivo_cancelacion (id_proceso, tipo_motivo, detalle_motivo, fecha_registro)
+    VALUES (v_id_nuevo, p_tipo_motivo, p_motivo, CURRENT_DATE);
+END;
+$$;
+
+
+--
+-- Name: trg_id_documento(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.trg_id_documento() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    IF NEW.id_tipodocumento IS NULL THEN
+        NEW.id_tipodocumento := generar_id_documento();
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: trg_id_enfermedad(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.trg_id_enfermedad() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    IF NEW.id_enfermedad IS NULL THEN
+        NEW.id_enfermedad := generar_id_enfermedad();
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: trg_id_familia(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.trg_id_familia() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    IF NEW.id_familia IS NULL THEN
+        NEW.id_familia := generar_id_familia();
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: trg_id_niño(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public."trg_id_niño"() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    IF NEW.id_niño IS NULL THEN
+        NEW.id_niño := generar_id_niño();
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: trg_id_proceso(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.trg_id_proceso() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    IF NEW.id_proceso IS NULL THEN
+        NEW.id_proceso := generar_id_proceso();
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: trg_id_solicitante(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.trg_id_solicitante() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    IF NEW.id_solicitante IS NULL THEN
+        NEW.id_solicitante := generar_id_solicitante();
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: validar_antecedentes_penales(character varying); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.validar_antecedentes_penales(p_id_solicitante character varying) RETURNS boolean
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+    esta_limpio BOOLEAN;
+BEGIN
+    SELECT COALESCE(presentado, FALSE) INTO esta_limpio
+    FROM verif_doc_solicitante
+    WHERE id_solicitante = p_id_solicitante AND id_tipodocumento = 'DOC-0004';
+    
+    RETURN esta_limpio; 
+END;
+$$;
+
+
+--
+-- Name: validar_documentos_solicitante(character varying); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.validar_documentos_solicitante(p_id_solicitante character varying) RETURNS boolean
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+    faltantes INTEGER;
+BEGIN
+    SELECT COUNT(*) INTO faltantes
+    FROM ambito_documento ad
+    LEFT JOIN verif_doc_solicitante vds 
+        ON ad.id_tipodocumento = vds.id_tipodocumento 
+        AND vds.id_solicitante = p_id_solicitante
+    WHERE ad.ambito = 'SOLICITANTE' 
+      AND ad.obligatoriedad = TRUE 
+      AND (vds.presentado IS NULL OR vds.presentado = FALSE);
+
+    RETURN (faltantes = 0);
+END;
+$$;
+
+
+--
+-- Name: validar_edad_solicitante(character varying); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.validar_edad_solicitante(p_id_solicitante character varying) RETURNS boolean
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+    edad INTEGER;
+BEGIN
+    SELECT DATE_PART('year', AGE(CURRENT_DATE, fecha_nacimiento)) INTO edad
+    FROM solicitante WHERE id_solicitante = p_id_solicitante;
+    
+    RETURN COALESCE(edad >= 25, FALSE);
+END;
+$$;
+
+
+--
+-- Name: validar_enfermedades_solicitante(character varying); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.validar_enfermedades_solicitante(p_id_solicitante character varying) RETURNS boolean
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    -- Si existe alguna enfermedad 'SI' (imposibilitante), retorna FALSE (no apto)
+    IF EXISTS (
+        SELECT 1 FROM tiene_solicitante_enfermedad tse
+        JOIN enfermedad e ON e.id_enfermedad = tse.id_enfermedad
+        WHERE tse.id_solicitante = p_id_solicitante AND e.imposibilitante = 'SI'
+    ) THEN
+        RETURN FALSE;
+    END IF;
+    RETURN TRUE;
+END;
+$$;
+
+
+--
+-- Name: validar_ingreso_solicitante(character varying); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.validar_ingreso_solicitante(p_id_solicitante character varying) RETURNS boolean
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+    ingreso_num NUMERIC;
+BEGIN
+    SELECT ingreso_mensual::numeric INTO ingreso_num 
+    FROM solicitante WHERE id_solicitante = p_id_solicitante;
+    
+    RETURN COALESCE(ingreso_num >= 800, FALSE);
+END;
+$$;
+
+
+--
+-- Name: validar_solicitante_libre(character varying); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.validar_solicitante_libre(p_cedula character varying) RETURNS boolean
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+    estado VARCHAR;
+BEGIN
+    SELECT solicitante_proceso_adopcion INTO estado
+    FROM solicitante 
+    WHERE cedula = p_cedula;
+    
+    -- Retorna TRUE solo si dice 'Sin Asignar'
+    RETURN (estado = 'Sin Asignar');
+END;
+$$;
+
+
+--
+-- Name: ambito_documento; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.ambito_documento (
+    id_tipodocumento character varying(10) NOT NULL,
+    ambito character varying(20) NOT NULL,
+    obligatoriedad boolean,
+    CONSTRAINT ambito_documento_ambito_check CHECK (((ambito)::text = ANY (ARRAY[('SOLICITANTE'::character varying)::text, ('NIÑO'::character varying)::text, ('PROCESO'::character varying)::text])))
+);
+
+
+--
+-- Name: control_cambios; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.control_cambios (
+    id_cambio integer NOT NULL,
+    usuario character varying(50) DEFAULT CURRENT_USER,
+    fecha timestamp without time zone,
+    accion character varying(50),
+    tabla character varying(50)
+);
+
+
+--
+-- Name: control_cambios_id_cambio_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.control_cambios_id_cambio_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: control_cambios_id_cambio_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.control_cambios_id_cambio_seq OWNED BY public.control_cambios.id_cambio;
+
+
+--
+-- Name: enfermedad; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.enfermedad (
+    id_enfermedad character varying(10) NOT NULL,
+    nombre_enfermedad character varying(100) NOT NULL,
+    imposibilitante character varying(10) NOT NULL,
+    CONSTRAINT enfermedad_imposibilitante_check CHECK (((imposibilitante)::text = ANY (ARRAY[('SI'::character varying)::text, ('NO'::character varying)::text])))
+);
+
+
+--
+-- Name: familia; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.familia (
+    id_familia character varying(10) NOT NULL,
+    tipo_familia character varying(30),
+    direccion_residencia_solicitante character varying(150),
+    ciudad character varying(50),
+    CONSTRAINT familia_tipo_familia_check CHECK (((tipo_familia)::text = ANY (ARRAY[('Monoparental'::character varying)::text, ('Pareja casada'::character varying)::text, ('Pareja en unión de hecho'::character varying)::text])))
+);
+
+
+--
+-- Name: motivo_cancelacion; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.motivo_cancelacion (
+    id_motivo integer NOT NULL,
+    id_proceso character varying(10) NOT NULL,
+    tipo_motivo character varying(30) NOT NULL,
+    detalle_motivo text NOT NULL,
+    fecha_registro timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT chk_tipo_motivo CHECK (((tipo_motivo)::text = ANY (ARRAY[('ECONOMICO'::character varying)::text, ('SALUD'::character varying)::text, ('EDAD'::character varying)::text, ('DOCUMENTOS'::character varying)::text, ('LEGAL'::character varying)::text, ('OTRO'::character varying)::text])))
+);
+
+
+--
+-- Name: motivo_cancelacion_id_motivo_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.motivo_cancelacion_id_motivo_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: motivo_cancelacion_id_motivo_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.motivo_cancelacion_id_motivo_seq OWNED BY public.motivo_cancelacion.id_motivo;
+
+
+--
+-- Name: niño; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public."niño" (
+    "id_niño" character varying(10) NOT NULL,
+    cedula character varying(10),
+    "niño_proceso_adopcion" character varying(30),
+    nombres character varying(30),
+    apellidos character varying(30),
+    sexo character varying(30),
+    fecha_nacimiento date,
+    nivel_educacion character varying(30),
+    CONSTRAINT "niño_nivel_educacion_check" CHECK (((nivel_educacion)::text = ANY (ARRAY[('Inicial'::character varying)::text, ('Preescolar'::character varying)::text, ('Primaria'::character varying)::text]))),
+    CONSTRAINT "niño_niño_proceso_adopcion_check" CHECK ((("niño_proceso_adopcion")::text = ANY (ARRAY[('Asignado'::character varying)::text, ('Sin Asignar'::character varying)::text, ('Adoptado'::character varying)::text]))),
+    CONSTRAINT "niño_sexo_check" CHECK (((sexo)::text = ANY (ARRAY[('Masculino'::character varying)::text, ('Femenino'::character varying)::text])))
+);
+
+
+--
+-- Name: proceso; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.proceso (
+    id_proceso character varying(10) NOT NULL,
+    "id_niño" character varying(10),
+    id_familia character varying(10) NOT NULL,
+    fecha_solicitud date DEFAULT CURRENT_DATE,
+    estado_proceso character varying(30) DEFAULT 'En Curso'::character varying,
+    fecha_finalizacion date,
+    CONSTRAINT proceso_estado_check CHECK (((estado_proceso)::text = ANY (ARRAY[('En Curso'::character varying)::text, ('Completado'::character varying)::text, ('Cancelado'::character varying)::text]))),
+    CONSTRAINT proceso_fecha_check CHECK (((fecha_finalizacion IS NULL) OR (fecha_finalizacion >= fecha_solicitud)))
+);
+
+
+--
+-- Name: solicitante; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.solicitante (
+    id_solicitante character varying(10) NOT NULL,
+    id_familia character varying(10),
+    solicitante_proceso_adopcion character varying(30),
+    cedula character varying(10),
+    nombres character varying(30),
+    apellidos character varying(30),
+    sexo character varying(30),
+    fecha_nacimiento date,
+    estado_civil character varying(30),
+    profesion character varying(30),
+    email character varying(100),
+    telefono character varying(15),
+    ingreso_mensual money NOT NULL,
+    CONSTRAINT solicitante_estado_civil_check CHECK (((estado_civil)::text = ANY (ARRAY[('Casado/a'::character varying)::text, ('Soltero/a'::character varying)::text, ('Unión de hecho'::character varying)::text]))),
+    CONSTRAINT solicitante_sexo_check CHECK (((sexo)::text = ANY (ARRAY[('Masculino'::character varying)::text, ('Femenino'::character varying)::text]))),
+    CONSTRAINT solicitante_solicitante_proceso_adopcion_check CHECK (((solicitante_proceso_adopcion)::text = ANY (ARRAY[('Asignado'::character varying)::text, ('Sin Asignar'::character varying)::text])))
+);
+
+
+--
+-- Name: tiene_niño_enfermedad; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public."tiene_niño_enfermedad" (
+    "id_niño" character varying(10) NOT NULL,
+    id_enfermedad character varying(10) NOT NULL
+);
+
+
+--
+-- Name: tiene_solicitante_enfermedad; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.tiene_solicitante_enfermedad (
+    id_solicitante character varying(10) NOT NULL,
+    id_enfermedad character varying(10) NOT NULL
+);
+
+
+--
+-- Name: tipo_documento; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.tipo_documento (
+    id_tipodocumento character varying(10) NOT NULL,
+    nombre_doc character varying(60) NOT NULL
+);
+
+
+--
+-- Name: verif_doc_niño; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public."verif_doc_niño" (
+    id_tipodocumento character varying(10) NOT NULL,
+    "id_niño" character varying(10) NOT NULL,
+    presentado boolean DEFAULT false
+);
+
+
+--
+-- Name: verif_doc_proceso; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.verif_doc_proceso (
+    id_tipodocumento character varying(10) NOT NULL,
+    id_proceso character varying(10) NOT NULL,
+    presentado boolean DEFAULT false
+);
+
+
+--
+-- Name: verif_doc_solicitante; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.verif_doc_solicitante (
+    id_tipodocumento character varying(10) NOT NULL,
+    id_solicitante character varying(10) NOT NULL,
+    presentado boolean DEFAULT false
+);
+
+
+--
+-- Name: vista_adopciones_mensuales; Type: VIEW; Schema: public; Owner: -
+--
+
+CREATE VIEW public.vista_adopciones_mensuales AS
+ SELECT to_char((fecha_solicitud)::timestamp with time zone, 'YYYY-MM'::text) AS mes_anio,
+    count(*) AS cantidad_adopciones
+   FROM public.proceso
+  WHERE ((estado_proceso)::text = 'Completado'::text)
+  GROUP BY (to_char((fecha_solicitud)::timestamp with time zone, 'YYYY-MM'::text))
+  ORDER BY (to_char((fecha_solicitud)::timestamp with time zone, 'YYYY-MM'::text)) DESC;
+
+
+--
+-- Name: vista_estadisticas_procesos; Type: VIEW; Schema: public; Owner: -
+--
+
+CREATE VIEW public.vista_estadisticas_procesos AS
+ SELECT estado_proceso,
+    count(*) AS cantidad
+   FROM public.proceso
+  GROUP BY estado_proceso;
+
+
+--
+-- Name: vista_motivos_rechazo; Type: VIEW; Schema: public; Owner: -
+--
+
+CREATE VIEW public.vista_motivos_rechazo AS
+ SELECT tipo_motivo,
+    count(*) AS cantidad,
+    string_agg(DISTINCT detalle_motivo, ' | '::text) AS ejemplos
+   FROM public.motivo_cancelacion
+  GROUP BY tipo_motivo
+  ORDER BY (count(*)) DESC;
+
+
+--
+-- Name: vista_reporte_adopciones; Type: VIEW; Schema: public; Owner: -
+--
+
+CREATE VIEW public.vista_reporte_adopciones AS
+ SELECT p.id_proceso,
+    p.fecha_solicitud,
+    f.id_familia,
+    ( SELECT string_agg((((s.nombres)::text || ' '::text) || (s.apellidos)::text), ' & '::text) AS string_agg
+           FROM public.solicitante s
+          WHERE ((s.id_familia)::text = (f.id_familia)::text)) AS padres,
+    (((n.nombres)::text || ' '::text) || (n.apellidos)::text) AS nombre_nino,
+    n.sexo AS sexo_nino,
+    n.nivel_educacion
+   FROM ((public.proceso p
+     JOIN public.familia f ON (((p.id_familia)::text = (f.id_familia)::text)))
+     JOIN public."niño" n ON (((p."id_niño")::text = (n."id_niño")::text)))
+  WHERE ((p.estado_proceso)::text = 'Completado'::text);
+
+
+--
+-- Name: control_cambios id_cambio; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.control_cambios ALTER COLUMN id_cambio SET DEFAULT nextval('public.control_cambios_id_cambio_seq'::regclass);
+
+
+--
+-- Name: motivo_cancelacion id_motivo; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.motivo_cancelacion ALTER COLUMN id_motivo SET DEFAULT nextval('public.motivo_cancelacion_id_motivo_seq'::regclass);
+
+
+--
+-- Name: ambito_documento ambito_documento_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ambito_documento
+    ADD CONSTRAINT ambito_documento_pkey PRIMARY KEY (id_tipodocumento, ambito);
+
+
+--
+-- Name: control_cambios control_cambios_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.control_cambios
+    ADD CONSTRAINT control_cambios_pkey PRIMARY KEY (id_cambio);
+
+
+--
+-- Name: enfermedad enfermedad_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.enfermedad
+    ADD CONSTRAINT enfermedad_pkey PRIMARY KEY (id_enfermedad);
+
+
+--
+-- Name: familia familia_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.familia
+    ADD CONSTRAINT familia_pkey PRIMARY KEY (id_familia);
+
+
+--
+-- Name: motivo_cancelacion motivo_cancelacion_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.motivo_cancelacion
+    ADD CONSTRAINT motivo_cancelacion_pkey PRIMARY KEY (id_motivo);
+
+
+--
+-- Name: niño niño_cedula_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public."niño"
+    ADD CONSTRAINT "niño_cedula_key" UNIQUE (cedula);
+
+
+--
+-- Name: niño niño_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public."niño"
+    ADD CONSTRAINT "niño_pkey" PRIMARY KEY ("id_niño");
+
+
+--
+-- Name: proceso proceso_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.proceso
+    ADD CONSTRAINT proceso_pkey PRIMARY KEY (id_proceso);
+
+
+--
+-- Name: solicitante solicitante_cedula_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.solicitante
+    ADD CONSTRAINT solicitante_cedula_key UNIQUE (cedula);
+
+
+--
+-- Name: solicitante solicitante_email_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.solicitante
+    ADD CONSTRAINT solicitante_email_key UNIQUE (email);
+
+
+--
+-- Name: solicitante solicitante_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.solicitante
+    ADD CONSTRAINT solicitante_pkey PRIMARY KEY (id_solicitante);
+
+
+--
+-- Name: tiene_niño_enfermedad tiene_niño_enfermedad_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public."tiene_niño_enfermedad"
+    ADD CONSTRAINT "tiene_niño_enfermedad_pkey" PRIMARY KEY ("id_niño", id_enfermedad);
+
+
+--
+-- Name: tiene_solicitante_enfermedad tiene_solicitante_enfermedad_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.tiene_solicitante_enfermedad
+    ADD CONSTRAINT tiene_solicitante_enfermedad_pkey PRIMARY KEY (id_solicitante, id_enfermedad);
+
+
+--
+-- Name: tipo_documento tipo_documento_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.tipo_documento
+    ADD CONSTRAINT tipo_documento_pkey PRIMARY KEY (id_tipodocumento);
+
+
+--
+-- Name: verif_doc_niño verif_doc_niño_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public."verif_doc_niño"
+    ADD CONSTRAINT "verif_doc_niño_pkey" PRIMARY KEY (id_tipodocumento, "id_niño");
+
+
+--
+-- Name: verif_doc_proceso verif_doc_proceso_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.verif_doc_proceso
+    ADD CONSTRAINT verif_doc_proceso_pkey PRIMARY KEY (id_tipodocumento, id_proceso);
+
+
+--
+-- Name: verif_doc_solicitante verif_doc_solicitante_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.verif_doc_solicitante
+    ADD CONSTRAINT verif_doc_solicitante_pkey PRIMARY KEY (id_tipodocumento, id_solicitante);
+
+
+--
+-- Name: enfermedad before_insert_enfermedad; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER before_insert_enfermedad BEFORE INSERT ON public.enfermedad FOR EACH ROW EXECUTE FUNCTION public.trg_id_enfermedad();
+
+
+--
+-- Name: familia before_insert_familia; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER before_insert_familia BEFORE INSERT ON public.familia FOR EACH ROW EXECUTE FUNCTION public.trg_id_familia();
+
+
+--
+-- Name: niño before_insert_niño; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER "before_insert_niño" BEFORE INSERT ON public."niño" FOR EACH ROW EXECUTE FUNCTION public."trg_id_niño"();
+
+
+--
+-- Name: proceso before_insert_proceso; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER before_insert_proceso BEFORE INSERT ON public.proceso FOR EACH ROW EXECUTE FUNCTION public.trg_id_proceso();
+
+
+--
+-- Name: solicitante before_insert_solicitante; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER before_insert_solicitante BEFORE INSERT ON public.solicitante FOR EACH ROW EXECUTE FUNCTION public.trg_id_solicitante();
+
+
+--
+-- Name: tipo_documento before_insert_tipo_documento; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER before_insert_tipo_documento BEFORE INSERT ON public.tipo_documento FOR EACH ROW EXECUTE FUNCTION public.trg_id_documento();
+
+
+--
+-- Name: familia trg_cambios_familia; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_cambios_familia AFTER INSERT OR DELETE OR UPDATE ON public.familia FOR EACH ROW EXECUTE FUNCTION public.cambios();
+
+
+--
+-- Name: motivo_cancelacion trg_cambios_motivo_cancelacion; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_cambios_motivo_cancelacion AFTER INSERT OR DELETE OR UPDATE ON public.motivo_cancelacion FOR EACH ROW EXECUTE FUNCTION public.cambios();
+
+
+--
+-- Name: niño trg_cambios_niño; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER "trg_cambios_niño" AFTER INSERT OR DELETE OR UPDATE ON public."niño" FOR EACH ROW EXECUTE FUNCTION public.cambios();
+
+
+--
+-- Name: proceso trg_cambios_proceso; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_cambios_proceso AFTER INSERT OR DELETE OR UPDATE ON public.proceso FOR EACH ROW EXECUTE FUNCTION public.cambios();
+
+
+--
+-- Name: solicitante trg_cambios_solicitante; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_cambios_solicitante AFTER INSERT OR DELETE OR UPDATE ON public.solicitante FOR EACH ROW EXECUTE FUNCTION public.cambios();
+
+
+--
+-- Name: tiene_niño_enfermedad trg_cambios_tiene_niño_enfermedad; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER "trg_cambios_tiene_niño_enfermedad" AFTER INSERT OR DELETE OR UPDATE ON public."tiene_niño_enfermedad" FOR EACH ROW EXECUTE FUNCTION public.cambios();
+
+
+--
+-- Name: tiene_solicitante_enfermedad trg_cambios_tiene_solicitante_enfermedad; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_cambios_tiene_solicitante_enfermedad AFTER INSERT OR DELETE OR UPDATE ON public.tiene_solicitante_enfermedad FOR EACH ROW EXECUTE FUNCTION public.cambios();
+
+
+--
+-- Name: verif_doc_niño trg_cambios_verif_doc_niño; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER "trg_cambios_verif_doc_niño" AFTER INSERT OR DELETE OR UPDATE ON public."verif_doc_niño" FOR EACH ROW EXECUTE FUNCTION public.cambios();
+
+
+--
+-- Name: verif_doc_proceso trg_cambios_verif_doc_proceso; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_cambios_verif_doc_proceso AFTER INSERT OR DELETE OR UPDATE ON public.verif_doc_proceso FOR EACH ROW EXECUTE FUNCTION public.cambios();
+
+
+--
+-- Name: verif_doc_solicitante trg_cambios_verif_doc_solicitante; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_cambios_verif_doc_solicitante AFTER INSERT OR DELETE OR UPDATE ON public.verif_doc_solicitante FOR EACH ROW EXECUTE FUNCTION public.cambios();
+
+
+--
+-- Name: ambito_documento ambito_documento_id_tipodocumento_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.ambito_documento
+    ADD CONSTRAINT ambito_documento_id_tipodocumento_fkey FOREIGN KEY (id_tipodocumento) REFERENCES public.tipo_documento(id_tipodocumento);
+
+
+--
+-- Name: motivo_cancelacion motivo_cancelacion_id_proceso_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.motivo_cancelacion
+    ADD CONSTRAINT motivo_cancelacion_id_proceso_fkey FOREIGN KEY (id_proceso) REFERENCES public.proceso(id_proceso);
+
+
+--
+-- Name: proceso proceso_id_familia_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.proceso
+    ADD CONSTRAINT proceso_id_familia_fkey FOREIGN KEY (id_familia) REFERENCES public.familia(id_familia);
+
+
+--
+-- Name: proceso proceso_id_niño_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.proceso
+    ADD CONSTRAINT "proceso_id_niño_fkey" FOREIGN KEY ("id_niño") REFERENCES public."niño"("id_niño");
+
+
+--
+-- Name: solicitante solicitante_id_familia_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.solicitante
+    ADD CONSTRAINT solicitante_id_familia_fkey FOREIGN KEY (id_familia) REFERENCES public.familia(id_familia);
+
+
+--
+-- Name: tiene_niño_enfermedad tiene_niño_enfermedad_id_enfermedad_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public."tiene_niño_enfermedad"
+    ADD CONSTRAINT "tiene_niño_enfermedad_id_enfermedad_fkey" FOREIGN KEY (id_enfermedad) REFERENCES public.enfermedad(id_enfermedad);
+
+
+--
+-- Name: tiene_niño_enfermedad tiene_niño_enfermedad_id_niño_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public."tiene_niño_enfermedad"
+    ADD CONSTRAINT "tiene_niño_enfermedad_id_niño_fkey" FOREIGN KEY ("id_niño") REFERENCES public."niño"("id_niño");
+
+
+--
+-- Name: tiene_solicitante_enfermedad tiene_solicitante_enfermedad_id_enfermedad_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.tiene_solicitante_enfermedad
+    ADD CONSTRAINT tiene_solicitante_enfermedad_id_enfermedad_fkey FOREIGN KEY (id_enfermedad) REFERENCES public.enfermedad(id_enfermedad);
+
+
+--
+-- Name: tiene_solicitante_enfermedad tiene_solicitante_enfermedad_id_solicitante_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.tiene_solicitante_enfermedad
+    ADD CONSTRAINT tiene_solicitante_enfermedad_id_solicitante_fkey FOREIGN KEY (id_solicitante) REFERENCES public.solicitante(id_solicitante);
+
+
+--
+-- Name: verif_doc_niño verif_doc_niño_id_niño_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public."verif_doc_niño"
+    ADD CONSTRAINT "verif_doc_niño_id_niño_fkey" FOREIGN KEY ("id_niño") REFERENCES public."niño"("id_niño");
+
+
+--
+-- Name: verif_doc_niño verif_doc_niño_id_tipodocumento_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public."verif_doc_niño"
+    ADD CONSTRAINT "verif_doc_niño_id_tipodocumento_fkey" FOREIGN KEY (id_tipodocumento) REFERENCES public.tipo_documento(id_tipodocumento);
+
+
+--
+-- Name: verif_doc_proceso verif_doc_proceso_id_proceso_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.verif_doc_proceso
+    ADD CONSTRAINT verif_doc_proceso_id_proceso_fkey FOREIGN KEY (id_proceso) REFERENCES public.proceso(id_proceso);
+
+
+--
+-- Name: verif_doc_proceso verif_doc_proceso_id_tipodocumento_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.verif_doc_proceso
+    ADD CONSTRAINT verif_doc_proceso_id_tipodocumento_fkey FOREIGN KEY (id_tipodocumento) REFERENCES public.tipo_documento(id_tipodocumento);
+
+
+--
+-- Name: verif_doc_solicitante verif_doc_solicitante_id_solicitante_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.verif_doc_solicitante
+    ADD CONSTRAINT verif_doc_solicitante_id_solicitante_fkey FOREIGN KEY (id_solicitante) REFERENCES public.solicitante(id_solicitante);
+
+
+--
+-- Name: verif_doc_solicitante verif_doc_solicitante_id_tipodocumento_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.verif_doc_solicitante
+    ADD CONSTRAINT verif_doc_solicitante_id_tipodocumento_fkey FOREIGN KEY (id_tipodocumento) REFERENCES public.tipo_documento(id_tipodocumento);
+
+
+--
+-- PostgreSQL database dump complete
+--
+
+
+
